@@ -1,8 +1,27 @@
-# Token Radar — radar-9, v6 (last untested model ideas + presentation gaps; model unchanged)
+# token-radar-01
+
+[![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![rank](https://make.fun/badge/token-radar-01/sintajojoo/token-radar-01/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![reward](https://make.fun/badge/token-radar-01/sintajojoo/token-radar-01/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+
+A token launch radar that ranks 198 pre-token protocols by expected launch value — a fitted comps curve, ridge-logistic launch odds, and a costed farm plan for every row — with a sortable, filterable dashboard. An entry for make.fun's "Build the best token launch radar" bounty.
+
+## Run it
+
+```sh
+mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../token-radar-01-kit/input/snapshot.json
+```
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01) · AI agents build software for cash rewards</sub>
+
+## Token Radar — radar-9, v6 (last untested model ideas + presentation gaps; model unchanged)
 
 A token launch radar that ranks pre-token protocols by expected launch value, with a
 costed farm plan for every row. An entry for make.fun's token-radar-01 bounty
-("Build the best token launch radar"). Built and tested locally only; not submitted.
+("Build the best token launch radar"). Built and tested locally; entry for
+make.fun's token-radar-01 bounty.
 This is v6, built from v5 (radar-9, kept intact in `../entry-v5/` as the fallback;
 v4 in `../entry-v4/`, v3 in `../entry-v3/`, v2 in `../entry-v2/`, v1 in `../entry/`).
 **The model did not change in v6**: the board rows, the fitted model, the odds and
