@@ -1,7 +1,7 @@
-// Token radar, model "fitted" (radar-10; entry v8).
+// Token radar, model radar-9 (entry v6; model unchanged from v4/v5).
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), fits the
-// nested size model and launch odds on the snapshot itself (lib/model.ts), writes the ranked board to
+// size curve and launch odds on the snapshot itself (lib/model.ts), writes the ranked board to
 // /output/board.json, and copies this repository's dashboard/ and screenshots/ to /output. Last, it
 // writes /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
 //

@@ -1,12 +1,11 @@
-// Token Radar, model "fitted" (radar-10). It reads window.RADAR (written beside dashboard/ by main.ts) and
+// Token Radar, model radar-9. It reads window.RADAR (written beside dashboard/ by main.ts) and
 // renders the ranked board, a filterable table, a per-protocol detail drawer with the model's own
-// inputs, its peers, and the protocol's farm plan. No network: every byte it shows is in data.js.
+// inputs and the protocol's farm plan. No network: every byte it shows is in data.js.
 //
 // The page recomputes every row from the snapshot figures with the same function main.ts runs:
-// fitted = exp(intercept + beta * ln(tvl) + offset[category]), odds = the ridge logistic
-// model (age-bucket dummies + log TVL, no growth), expected = fitted x odds; the calibration
-// band is fitted x exp([q10, q90]) x odds, and break-even odds is gas / (0.001% x fitted).
-// It counts how many rows recompute to the numbers board.json carries and shows the count
+// fitted = exp(intercept + slope * ln(tvl) + quad * ln(tvl)^2), odds = the ridge logistic
+// model (age-bucket dummies + log TVL, no growth), expected = fitted x odds.
+// It counts how many rows recompute to the number board.json carries and shows the count
 // on the cover, so the page's code and the board's data are visibly the same arithmetic.
 (function () {
   'use strict';
@@ -67,49 +66,20 @@
     if (need <= 100) return need.toFixed(3) + '% of P10';
     return 'never — needs ' + Math.round(need) + '% of P10';
   }
-  function fittedRawOf(row) {
+  function impliedOf(row) {
     var m = DATA.model;
     var lt = Math.log(row.tvl_usd);
-    return Math.exp(m.intercept + m.beta * lt + (m.offsets[row.category || 'Other'] || 0));
-  }
-  function fittedOf(row) {
-    return Math.max(1, Math.round(fittedRawOf(row)));
-  }
-  function impliedOf(row) {
-    // The board multiplies the unrounded fitted value by the odds and rounds
-    // once, so the page must do the same: rounding the fitted value first
-    // flips the final rounding on a few rows.
-    return Math.max(1, Math.round(fittedRawOf(row) * oddsOf(row)));
-  }
-  function calBandOf(row) {
-    var c = DATA.validation.calibration;
-    var fitted = fittedRawOf(row);
-    var odds = oddsOf(row);
-    return {
-      lo: Math.max(1, Math.round(fitted * Math.exp(c.q10_log) * odds)),
-      hi: Math.max(1, Math.round(fitted * Math.exp(c.q90_log) * odds))
-    };
-  }
-  function breakevenOddsOf(row) {
-    var fitted = fittedRawOf(row);
-    if (fitted <= 0) return 999;
-    return Math.round((row.gas_total_usd / (0.00001 * fitted)) * 1e6) / 1e6;
+    var fitted = Math.exp(m.intercept + m.slope * lt + m.quad_coef * lt * lt);
+    return Math.max(1, Math.round(fitted * oddsOf(row)));
   }
   function fmtBps(n) {
     if (n === null || n === undefined || !isFinite(n)) return 'n/a';
     if (n >= 0.01) return n.toFixed(2) + ' bps';
     return n.toFixed(4) + ' bps';
   }
-  /** How many rows recompute to the numbers board.json carries, per check. */
   function recomputeCheck() {
-    var ok = { implied: 0, fitted: 0, cal: 0, breakeven: 0 };
-    DATA.rows.forEach(function (r) {
-      if (impliedOf(r) === r.implied_value_usd) ok.implied++;
-      if (fittedOf(r) === r.fitted_value_usd) ok.fitted++;
-      var band = calBandOf(r);
-      if (band.lo === r.cal_lo_usd && band.hi === r.cal_hi_usd) ok.cal++;
-      if (breakevenOddsOf(r) === r.breakeven_odds) ok.breakeven++;
-    });
+    var ok = 0;
+    DATA.rows.forEach(function (r) { if (impliedOf(r) === r.implied_value_usd) ok++; });
     return ok;
   }
 
@@ -203,21 +173,107 @@
     var v = DATA.validation;
     var farm = { FARM: 0, THIN: 0, SKIP: 0 };
     DATA.rows.forEach(function (r) { farm[r.verdict]++; });
-    var rc = recomputeCheck();
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: DATA.watchlist_size + ' watchlist protocols, ranked by expected launch value' }),
-        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The board ranks all ' + DATA.board_size + ' rankable pre-token protocols by expected value: fitted value from the fitted size model times launch odds (age bucket, log TVL). Implied value is a model, not a promise.' }),
-        el('p', { class: 'sub', text: 'Farm verdicts, by the break-even odds rule: ' + farm.FARM + ' FARM, ' + farm.THIN + ' THIN, ' + farm.SKIP + ' SKIP.' })
+        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The board ranks all ' + DATA.board_size + ' rankable pre-token protocols by expected value: fitted value from the quadratic size curve times launch odds (age bucket, log TVL). Implied value is a model, not a promise.' }),
+        el('p', { class: 'sub', text: 'Farm verdicts, netted on the P10: ' + farm.FARM + ' FARM, ' + farm.THIN + ' THIN, ' + farm.SKIP + ' SKIP.' })
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
         el('div', { class: 'fact' }, el('span', { text: 'Pre-token rows scored' }), el('b', { text: String(DATA.board_size) })),
         el('div', { class: 'fact' }, el('span', { text: 'Audit: ranked + live + excluded' }), el('b', { text: DATA.audit.ranked + ' + ' + DATA.audit.live_token + ' + ' + DATA.audit.excluded + ' = ' + DATA.audit.total })),
-        el('div', { class: 'fact' }, el('span', { text: 'Page recomputes board.json' }), el('b', { text: rc.implied + ' / ' + DATA.board_size + ' implied, ' + rc.fitted + ' fitted, ' + rc.cal + ' cal band, ' + rc.breakeven + ' break-even odds' })),
-        el('div', { class: 'fact' }, el('span', { text: 'Fitted model, R²' }), el('b', { text: v.model.r2 + ' on ' + v.model.n_comps + ' comps' })),
-        el('div', { class: 'fact' }, el('span', { text: 'Selection score (LOO + WF)/2' }), el('b', { text: String(v.selection_score) + ' log points' }))
+        el('div', { class: 'fact' }, el('span', { text: 'Page recomputes board.json' }), el('b', { text: recomputeCheck() + ' / ' + DATA.board_size + ' rows match' })),
+        el('div', { class: 'fact' }, el('span', { text: 'Size curve, R²' }), el('b', { text: v.curve.r2 + ' on ' + v.curve.n_comps + ' comps' })),
+        el('div', { class: 'fact' }, el('span', { text: 'LOO error (log)' }), el('b', { text: v.quad.loo_median_abs_log_error + ', flat ' + v.flat_baseline.median_abs_log_error }))
       )
+    );
+  }
+
+  function oddsHistSvg() {
+    var bins = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    DATA.rows.forEach(function (r) { var b = Math.min(9, Math.floor(r.launch_odds * 10)); bins[b]++; });
+    var max = Math.max.apply(null, bins);
+    var W = 190, H = 58, BW = 15, GAP = 4;
+    var bars = bins.map(function (n, i) {
+      var h = max ? Math.max(1, Math.round((n / max) * 40)) : 0;
+      return '<rect x="' + (i * (BW + GAP)) + '" y="' + (44 - h) + '" width="' + BW + '" height="' + h + '" fill="#2fd48a"><title>' + Math.round(i * 10) + '–' + Math.round((i + 1) * 10) + '% odds: ' + n + ' rows</title></rect>';
+    }).join('');
+    var sorted = DATA.rows.map(function (r) { return r.launch_odds; }).sort(function (a, b) { return a - b; });
+    var med = sorted[Math.floor(sorted.length / 2)];
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Launch odds across the 198 rows, median ' + Math.round(med * 100) + ' percent">' + bars +
+      '<text x="0" y="56" class="axis">0%</text><text x="86" y="56" class="axis">50%</text><text x="172" y="56" class="axis">100%</text></svg>';
+  }
+
+  function honestyPanel() {
+    var v = DATA.validation;
+    return el('section', { class: 'panel honesty', 'aria-label': 'What we claim and what we do not claim' },
+      el('div', { class: 'honesty-head' },
+        el('h2', { text: 'What we claim — and what we don\u2019t' }),
+        el('span', { class: 'sub', text: 'Blind-test scores, not adjectives. Full tables are below.' })
+      ),
+      el('div', { class: 'honesty-cols' },
+        el('div', { class: 'honesty-col' },
+          el('b', { class: 'claim-h', text: 'We claim' }),
+          el('p', { text: 'The board ranks 198 pre-token protocols by fitted value \u00d7 launch odds. The quadratic curve beats the linear curve on the two pre-set blind tests (LOO ' + v.quad.loo_median_abs_log_error + ' vs ' + v.size_only.loo_median_abs_log_error + '; walk-forward ' + v.quad.walkforward_median_abs_log_error + ' vs ' + v.size_only.walkforward_median_abs_log_error + ') \u2014 but only just.' }),
+          el('p', { text: 'Launch odds beat the base rate (Brier ' + v.odds.brier_loo + ' vs ' + v.odds.base_brier + ') and the v2 blend (' + v.odds.v2_brier_loo + ').' })
+        ),
+        el('div', { class: 'honesty-col' },
+          el('b', { class: 'claim-h dont', text: 'We don\u2019t claim' }),
+          el('p', { text: 'Quad vs linear is near a coin flip: 5-fold favours linear (' + v.size_only_fivefold.median_abs_log_error + ' vs ' + v.quad_fivefold.median_abs_log_error + '), and repeated 5-fold agrees (linear 1.2665, quad 1.2859). The odds gain over v2 is small: Brier 0.2092 \u2192 0.2028.' }),
+          el('p', { text: 'TVL is counted twice \u2014 in the fitted value and in the odds \u2014 and a launch may attract TVL first. One snapshot cannot tell cause from effect. The P5\u2013P95 range is nominal 90%; walk-forward only 83% fell inside it (n = 47) — the other held-out checks are 88% (5-fold, n = 128) and 87% (newest third, n = 31).' })
+        ),
+        el('div', { class: 'honesty-hist' },
+          el('b', { class: 'claim-h', text: 'Launch odds, 198 rows' }),
+          el('div', { class: 'hist-body', html: oddsHistSvg() }),
+          el('span', { class: 'sub', text: 'Most rows sit at low odds; the top of the board is the high-odds tail, not the typical protocol.' })
+        )
+      )
+    );
+  }
+
+  function checksStrip() {
+    var items = DATA.checks.map(function (c) {
+      return el('div', { class: 'check' },
+        el('span', { class: c.pass ? 'pass' : 'fail', text: c.pass ? 'PASS' : 'FAIL' }),
+        el('div', null, el('b', { text: c.label }), el('span', { class: 'sub', text: c.detail }))
+      );
+    });
+    return el('section', { class: 'strip', 'aria-label': 'Integrity checks' }, items);
+  }
+
+  function curveChart() {
+    var cc = DATA.curve_chart;
+    if (!cc || !cc.bins || cc.bins.length === 0) return null;
+    var W = 1200, H = 46, PL = 70, PR = 20, PT = 8, PB = 22;
+    var xs = cc.curve.map(function (p) { return p.log_tvl; }).concat(cc.bins.map(function (b) { return b.log_tvl; })).concat((cc.points || []).map(function (p) { return p.log_tvl; }));
+    var ys = cc.curve.map(function (p) { return p.log_mcap; }).concat(cc.bins.map(function (b) { return b.log_mcap; })).concat((cc.points || []).map(function (p) { return p.log_mcap; }));
+    var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+    var y0 = Math.min.apply(null, ys) - 0.5, y1 = Math.max.apply(null, ys) + 0.5;
+    function X(v) { return PL + ((v - x0) / (x1 - x0)) * (W - PL - PR); }
+    function Y(v) { return PT + (1 - (v - y0) / (y1 - y0)) * (H - PT - PB); }
+    var path = cc.curve.map(function (p, i) { return (i === 0 ? 'M' : 'L') + X(p.log_tvl).toFixed(1) + ',' + Y(p.log_mcap).toFixed(1); }).join(' ');
+    var dots = cc.bins.map(function (b) {
+      return '<circle cx="' + X(b.log_tvl).toFixed(1) + '" cy="' + Y(b.log_mcap).toFixed(1) + '" r="' + (4 + Math.min(6, b.n)) + '" fill="#2fd48a"><title>' + b.n + ' comps, median log mcap ' + b.log_mcap + '</title></circle>';
+    }).join('');
+    var xTicks = [];
+    for (var t = Math.ceil(x0); t <= Math.floor(x1); t++) {
+      xTicks.push('<text x="' + X(t).toFixed(1) + '" y="' + (H - 12) + '" class="axis">$' + Math.round(Math.exp(t) / 1e6) + 'M TVL</text>');
+      xTicks.push('<line x1="' + X(t).toFixed(1) + '" y1="' + PT + '" x2="' + X(t).toFixed(1) + '" y2="' + (H - PB) + '" class="grid"/>');
+    }
+    var scatter = (cc.points || []).map(function (p) {
+      return '<circle cx="' + X(p.log_tvl).toFixed(1) + '" cy="' + Y(p.log_mcap).toFixed(1) + '" r="3" fill="#2fd48a" opacity="0.45"/>';
+    }).join('');
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Size curve: live-token comps by TVL and market cap, with the fitted quadratic curve">' +
+      xTicks.join('') + scatter +
+      '<path d="' + path + '" fill="none" stroke="#e6f0ea" stroke-width="2"/>' + dots +
+      '<text x="' + PL + '" y="' + (PT + 2) + '" class="axis">log market cap</text></svg>';
+    return el('section', { class: 'panel chart' },
+      el('div', { class: 'chart-head' },
+        el('h2', { text: 'The size curve, against the comps' }),
+        el('span', { class: 'sub', text: 'Small dots are the 128 comps; large dots are bin medians; the line is the fitted curve.' })
+      ),
+      el('div', { class: 'chart-body', html: svg })
     );
   }
 
@@ -308,7 +364,7 @@
     return el('div', { class: 'panel' },
       el('div', { class: 'table-wrap' },
         el('table', null,
-          el('caption', { class: 'sub', text: 'Pre-token protocols, largest expected value first. Expected value = fitted value x launch odds. Select a row for its model, its peers and its farm plan.' }),
+          el('caption', { class: 'sub', text: 'Pre-token protocols, largest expected value first. Expected value = fitted value x launch odds. Select a row for its model and farm plan.' }),
           el('thead', null, el('tr', null,
             sortHeader('implied', 'Rank'),
             sortHeader('name', 'Protocol'),
@@ -348,53 +404,42 @@
     );
   }
 
-  function ablationPanel() {
-    var v = DATA.validation;
-    var ab = v.ablation.map(function (a) {
-      return el('div', { class: 'ablation-row' },
-        el('span', { class: 'num', text: a.term }),
-        el('span', { class: 'num', text: 'LOO ' + a.loo_median_abs_log_error }),
-        el('span', { class: 'num', text: 'walk-forward ' + a.walkforward_median_abs_log_error }),
-        el('span', { class: 'num', text: 'split-half ' + a.split_half_median_abs_log_error }),
-        el('b', { class: a.kept ? 'pass' : 'fail', text: a.kept ? 'KEPT' : 'DROPPED' })
-      );
-    });
-    var cat = v.ablation[1];
-    var flat = v.ablation[0];
-    var size = v.ablation[2];
-    var full = v.ablation[v.ablation.length - 1];
-    return el('section', { class: 'panel model' },
-      el('h2', { text: 'Terms, added in order — one step kept, the rest refused' }),
-      el('p', { class: 'sub', text: 'Each row is one nested model, refit from scratch and scored on the same two blind tests: leave-one-out on the 127 comps, and walk-forward (fit on the older half of the dated comps, tested on the newer half, n = ' + v.selected.n_walkforward + '). A step stays only if it beats the previous step on BOTH tests. Median absolute log error; lower is better.' }),
-      el('div', { class: 'ablation' }, ab),
-      el('p', { class: 'sub', text: 'Read the table honestly. The category step alone does NOT pass its own test: with the slope fixed at 1 it scores worse than the flat multiple on both tests (LOO ' + cat.loo_median_abs_log_error + ' vs ' + flat.loo_median_abs_log_error + '; walk-forward ' + cat.walkforward_median_abs_log_error + ' vs ' + flat.walkforward_median_abs_log_error + '). It is kept anyway as part of the specified nested structure, because the step that carries it — size elasticity — is a large improvement over the flat multiple on both tests (LOO ' + size.loo_median_abs_log_error + ' vs ' + flat.loo_median_abs_log_error + '; walk-forward ' + size.walkforward_median_abs_log_error + ' vs ' + flat.walkforward_median_abs_log_error + '), and because the offsets are what let the board show a per-category multiple. A reader who trusts only the blind tests should read the fitted values as the size curve adjusted by a category offset the tests do not confirm on their own.' }),
-      el('p', { class: 'sub', text: 'The full-model row (' + full.loo_median_abs_log_error + ' / ' + full.walkforward_median_abs_log_error + ') is a tighter marginal reading than the headline (' + size.loo_median_abs_log_error + ' / ' + size.walkforward_median_abs_log_error + '), not a contradiction: each ablation row scores the model WITH that term added, refit and tested on its own, while the headline reports the selected model only. The full model scores worse than the selected model on both tests — that is why growth, maturity and breadth are refused, not kept. The 7-day growth is still shown on every row; it is not in the value.' })
-    );
-  }
-
-  function calibrationPanel() {
-    var c = DATA.validation.calibration;
-    var pct = function (x) { return Math.round(x * 100) + '%'; };
-    return el('section', { class: 'panel model' },
-      el('h2', { text: 'Calibration — does the range hold what it promises?' }),
-      el('p', { class: 'sub', text: 'The band on every row is fitted x exp([q10, q90]) x odds, where q10/q90 are the 10th and 90th percentiles of the selected model\u2019s own leave-one-out residuals (q10 ' + c.q10_log + ', q25 ' + c.q25_log + ', q75 ' + c.q75_log + ', q90 ' + c.q90_log + ' log points). It is deliberately NOT clamped to the bootstrap P10–P90 range: the band is a property of the model\u2019s residuals, and clamping it would hide the rows where the model is less certain than the bootstrap suggests. It happens to contain the bootstrap range on all 198 rows — that is a measured fact, not a construction.' }),
-      el('div', { class: 'ablation' },
-        el('div', { class: 'ablation-row' }, el('span', { text: 'P25–P75 coverage (nominal 50%)' }), el('span', { class: 'num', text: 'LOO ' + pct(c.p2575_loo) }), el('span', { class: 'num', text: 'walk-forward ' + pct(c.p2575_wf) }), el('span', { class: 'sub', text: 'n = 127 / ' + c.n_walkforward })),
-        el('div', { class: 'ablation-row' }, el('span', { text: 'P10–P90 coverage (nominal 80%)' }), el('span', { class: 'num', text: 'LOO ' + pct(c.p1090_loo) }), el('span', { class: 'num', text: 'walk-forward ' + pct(c.p1090_wf) }), el('span', { class: 'sub', text: 'n = 127 / ' + c.n_walkforward })),
-        el('div', { class: 'ablation-row' }, el('span', { text: 'Within 3x of the true market cap' }), el('span', { class: 'num', text: 'LOO ' + pct(c.within3x_loo) }), el('span', { class: 'num', text: 'walk-forward ' + pct(c.within3x_wf) }), el('span', { class: 'sub', text: 'n = 127 / ' + c.n_walkforward })),
-        el('div', { class: 'ablation-row' }, el('span', { text: 'P10–P90, two more held-out checks' }), el('span', { class: 'num', text: '5-fold ' + pct(c.p1090_fivefold) }), el('span', { class: 'num', text: 'newest third ' + pct(c.p1090_newer_third) }), el('span', { class: 'sub', text: 'n = 127 / ' + c.n_newer_third }))
-      ),
-      el('p', { class: 'sub', text: 'The weak number is stated, not smoothed over: walk-forward P10–P90 coverage is ' + pct(c.p1090_wf) + ' against a nominal 80% (' + Math.round(c.p1090_wf * c.n_walkforward) + ' of ' + c.n_walkforward + ' newer protocols fell inside). The interval undercovers newer protocols, so the farm verdict is netted on the narrower bootstrap P10 instead, and the two ranges are not confused with each other.' })
+  function residualChart() {
+    var pts = (DATA.curve_chart && DATA.curve_chart.points) || [];
+    var m = DATA.model;
+    if (!pts.length) return null;
+    var res = pts.map(function (p) { return p.log_mcap - (m.intercept + m.slope * p.log_tvl + m.quad_coef * p.log_tvl * p.log_tvl); });
+    var lo = Math.min.apply(null, res), hi = Math.max.apply(null, res);
+    var NB = 12, bins = [];
+    for (var i = 0; i < NB; i++) bins.push(0);
+    res.forEach(function (r) { var b = Math.min(NB - 1, Math.floor(((r - lo) / (hi - lo || 1)) * NB)); bins[b]++; });
+    var max = Math.max.apply(null, bins);
+    var W = 600, H = 84, BW = 44, GAP = 6;
+    var bars = bins.map(function (n, i) {
+      var h = max ? Math.max(1, Math.round((n / max) * 56)) : 0;
+      return '<rect x="' + (i * (BW + GAP)) + '" y="' + (68 - h) + '" width="' + BW + '" height="' + h + '" fill="#2fd48a"><title>' + n + ' comps in this residual bin</title></rect>';
+    }).join('');
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="In-sample residuals of the fitted curve on the 128 comps">' + bars +
+      '<text x="0" y="82" class="axis">' + lo.toFixed(1) + ' (overvalued by the curve)</text>' +
+      '<text x="' + (W - 150) + '" y="82" class="axis">' + hi.toFixed(1) + ' (undervalued)</text></svg>';
+    return el('div', null,
+      el('h3', { text: 'Where the curve misses: residuals on the 128 comps' }),
+      el('div', { class: 'chart-body', html: svg }),
+      el('p', { class: 'sub', text: 'Log market cap minus fitted log market cap, per comp. This is in-sample — every comp helped fit the curve, so it flatters the fit; the blind-test errors above (median 1.2167 log points leave-one-out) are the honest error. The spread is wide and lopsided: a few protocols miss by 5–6 log points under every curve tried.' })
     );
   }
 
   function modelPanel() {
     var m = DATA.model;
     var v = DATA.validation;
-    var offs = Object.keys(m.offsets).map(function (k) { return { cat: k, v: m.offsets[k] }; });
-    offs.sort(function (a, b) { return b.v - a.v; });
-    var top = offs.length ? offs[0] : null;
-    var bottom = offs.length ? offs[offs.length - 1] : null;
+    var ab = v.ablation.map(function (a) {
+      return el('div', { class: 'ablation-row' },
+        el('span', { class: 'num', text: a.term }),
+        el('span', { class: 'num', text: 'LOO ' + a.loo_median_abs_log_error }),
+        el('span', { class: 'num', text: 'walk-forward ' + a.walkforward_median_abs_log_error }),
+        el('b', { class: a.kept ? 'pass' : 'fail', text: a.kept ? 'KEPT' : 'DROPPED' })
+      );
+    });
     var oddsRows = m.odds_buckets.map(function (b) {
       return el('div', { class: 'ablation-row' },
         el('span', { text: b.lo_days + '–' + (b.hi_days === null ? '∞' : b.hi_days) + ' days' }),
@@ -407,16 +452,20 @@
       el('h2', { text: 'How expected value is computed' }),
       el('p', { class: 'sub', text: 'One function scores every row. No protocol name is special-cased, and no row is hand-picked.' }),
       el('div', { class: 'formula' },
-        'log(mcap) = ' + m.intercept + ' + ' + m.beta + ' x log(tvl) + offset[category]   (least squares, ' + m.n_comps + ' live-token comps, R² ' + m.r2 + ')'
+        'log(mcap) = ' + m.intercept + ' + ' + m.slope + ' x log(tvl) + ' + m.quad_coef + ' x log(tvl)^2   (least squares, ' + m.n_comps + ' live-token comps, R² ' + m.r2 + ')'
       ),
       el('div', { class: 'formula' },
-        'expected = exp(' + m.intercept + ' + ' + m.beta + ' x log(tvl) + offset[category]) x launch odds (ridge logistic: age-bucket dummies + log TVL, lambda ' + m.odds_logit.lam + ')'
+        'expected = exp(' + m.intercept + ' + ' + m.slope + ' x log(tvl) + ' + m.quad_coef + ' x log(tvl)^2) x launch odds (ridge logistic: age-bucket dummies + log TVL, lambda ' + m.odds_logit.lam + ')'
       ),
-      el('p', { class: 'sub', text: 'The size elasticity is ' + m.beta + ': fitted market cap grows with TVL to the power ' + m.beta + '. Category offsets are the mean residual of each category, shrunk by n/(n+10) toward zero, so a category seen once cannot set its own multiple; ' + v.model.n_categories + ' categories carry an offset, from ' + (top ? top.v + ' (' + top.cat + ')' : 'n/a') + ' down to ' + (bottom ? bottom.v + ' (' + bottom.cat + ')' : 'n/a') + '. Categories with no comp score an offset of 0. The comps are deduplicated to one protocol per token symbol (127, not 128: the only collision is BIFI, beefy vs bifi, two different gecko ids sharing a ticker; the smaller-TVL one is dropped).' }),
-      el('p', { class: 'sub', text: 'Selection score — the mean of the selected model\u2019s leave-one-out and walk-forward median absolute log errors — is ' + v.selection_score + ' (LOO ' + v.selected.loo_median_abs_log_error + ', ' + Math.round(v.selected.loo_within_2x * 100) + '% within 2x; walk-forward ' + v.selected.walkforward_median_abs_log_error + ', ' + Math.round(v.selected.walkforward_within_2x * 100) + '% within 2x; split-half ' + v.selected.split_half_median_abs_log_error + '). The hand-set starter this model replaces — a fixed 0.25 multiple with growth and maturity factors, the model v1 started from — scores 1.6363 on the same definition and the same 127 comps. R² ' + m.r2 + ' is low: market caps are noisy, and every row carries a P10–P90 range from 200 bootstrap refits plus the wider calibration band above.' }),
+      el('p', { class: 'sub', text: 'Blind tests on the comps: leave-one-out median abs log error ' + v.quad.loo_median_abs_log_error + ' (' + Math.round(v.quad.loo_within_2x * 100) + '% within 2x), walk-forward ' + v.quad.walkforward_median_abs_log_error + ' (' + Math.round(v.quad.walkforward_within_2x * 100) + '% within 2x). The linear curve scores ' + v.size_only.loo_median_abs_log_error + ' leave-one-out and ' + v.size_only.walkforward_median_abs_log_error + ' walk-forward, so the quadratic term scores better on both — but only just: R² moves from 0.1939 to ' + m.r2 + ', and a 5-fold check does not confirm the gain (quadratic ' + v.quad_fivefold.median_abs_log_error + ' vs linear ' + v.size_only_fivefold.median_abs_log_error + '; repeated 5-fold over 5 shuffles agrees, linear 1.2665 vs quadratic 1.2859). On the newest third of dated comps (fit on the older two-thirds, n = ' + v.quad_newer_third.n + ') the quadratic scores ' + v.quad_newer_third.median_abs_log_error + ' vs linear ' + v.size_newer_third.median_abs_log_error + '. A flat median multiple scores ' + v.flat_baseline.median_abs_log_error + ' leave-one-out. R² ' + m.r2 + ' is low: market caps are noisy, and every row carries a P10–P90 range from 200 bootstrap refits plus a wider conformal range (nominal 90%, achieved 83% walk-forward).' }),
+      el('p', { class: 'sub', text: 'Conformal range: fitted x exp(±' + v.conformal.half_width_log + '), the 90th percentile of the leave-one-out residuals, so it is nominally a 90% range (P5–P95) — not an achieved one. Tested four ways, each calibrated on a training set and counted on a held-out set: leave-one-out ' + Math.round(v.conformal.loo_coverage * 100) + '% (n = 128), walk-forward ' + Math.round(v.conformal.walkforward_coverage * 100) + '% (n = ' + v.conformal.n_walkforward + '), 5-fold ' + Math.round(v.conformal.fivefold_coverage * 100) + '% (n = 128), newest third ' + Math.round(v.conformal.newer_third_coverage * 100) + '% (n = ' + v.conformal.n_newer_third + '). Walk-forward is the weakest of the four (' + Math.round(v.conformal.walkforward_coverage * v.conformal.n_walkforward) + ' of ' + v.conformal.n_walkforward + ' newer protocols fell inside) against a nominal 90% — the interval still undercovers newer protocols, and the farm verdict is netted on the narrower bootstrap P10 instead, stated here so the two ranges are not confused.' }),
+      el('h3', { text: 'Terms tested — one kept, the rest dropped' }),
+      el('div', { class: 'ablation' }, ab),
+      el('p', { class: 'sub', text: 'A term stays only if it beats its baseline curve on BOTH blind tests. The quadratic term is the only one that does, against the linear curve. Growth, maturity, chain count, the full combination, category intercepts and grouped categories each failed at least one, so they are not in the value — the 7-day growth is still shown on every row. The placebo (seeded noise) also failed both, which is the control that the tests can refuse a term. v6 tested the last untested ideas — one-per-ticker dedup of the comps, survival/hazard odds, empirical-Bayes partial pooling by category — and all failed at least one blind test too; the numbers are in the README exploration table.' }),
       el('h3', { text: 'Launch odds by age' }),
       el('div', { class: 'ablation' }, oddsRows),
-      el('p', { class: 'sub', text: 'Odds are a ridge logistic regression (lambda ' + v.odds.logit_lam + ') on age-bucket dummies and log TVL, unchanged from v6: leave-one-out Brier ' + v.odds.brier_loo + ' against the base rate ' + v.odds.base_brier + '; log-loss ' + v.odds.logloss_loo + ' against ' + v.odds.base_logloss + ' (' + v.odds.n_dated + ' dated protocols; a 5-fold check agrees: Brier ' + v.odds.fivefold_brier + ', log-loss ' + v.odds.fivefold_logloss + '). The table above shows the empirical token rate by age bucket for reference — the logistic model, not the table, sets the odds. Protocols with no listing date use the base rate. Odds are a cohort rate, never a launch date: the snapshot has no launch dates.' }),
+      el('p', { class: 'sub', text: 'Odds are a ridge logistic regression (lambda ' + v.odds.logit_lam + ') on age-bucket dummies and log TVL. Leave-one-out Brier ' + v.odds.brier_loo + ' against the base rate ' + v.odds.base_brier + ', the v2 age/category blend ' + v.odds.v2_brier_loo + ' and the refused v3 variant with growth ' + v.odds.v3_brier_loo + '; log-loss ' + v.odds.logloss_loo + ' against ' + v.odds.base_logloss + ', v2 ' + v.odds.v2_logloss_loo + ' and v3 ' + v.odds.v3_logloss_loo + ' (' + v.odds.n_dated + ' dated protocols; a 5-fold check agrees: Brier ' + v.odds.fivefold_brier + ' vs v2 ' + v.odds.fivefold_v2_brier + ' and v3 ' + v.odds.fivefold_v3_brier + '). Growth was dropped deliberately: the v3 variant scored better but its growth coefficient was negative and it drove most of the board reshuffle, so v4 keeps about two-thirds of its gain with less than half the reshuffle. The table above shows the empirical token rate by age bucket for reference — the logistic model, not the table, sets the odds. Protocols with no listing date use the base rate. Odds are a cohort rate, never a launch date: the snapshot has no launch dates.' }),
+      el('div', null, residualChart()),
       el('p', { class: 'sub', text: 'Audit: ' + DATA.audit.ranked + ' ranked + ' + DATA.audit.live_token + ' live-token + ' + DATA.audit.excluded + ' excluded = ' + DATA.audit.total + '. Excluded: ' + Object.keys(DATA.audit.excluded_by_reason).map(function (k) { return DATA.audit.excluded_by_reason[k] + ' ' + k; }).join(', ') + '.' })
     );
   }
@@ -424,12 +473,68 @@
   var dialog = el('dialog', { class: 'detail', id: 'detail', 'aria-labelledby': 'detail-title' });
   dialog.addEventListener('close', function () { state.selected = null; writeHash(); });
 
+  function verdictOneLiner(row) {
+    var drag = row.gas_total_usd / row.capital_usd;
+    var dragTxt = 'Gas drag ' + Math.round(drag * 100) + '% (gas / capital)' + (drag <= 0.1 ? ' — inside the 10% FARM limit' : drag <= 0.3 ? ' — outside the 10% FARM limit, inside the 30% THIN limit' : ' — outside the 30% THIN limit');
+    var beTxt = 'breakeven ' + fmtBps(row.breakeven_bps) + (row.breakeven_bps <= 1 ? ' — inside the 1 bp FARM limit' : row.breakeven_bps <= 5 ? ' — outside the 1 bp FARM limit, inside the 5 bp THIN limit' : ' — outside the 5 bp THIN limit');
+    return dragTxt + '; ' + beTxt + '. Verdict: ' + row.verdict + '.';
+  }
+
+  function verdictWhySection(row) {
+    var gasDrag = row.gas_total_usd / row.capital_usd;
+    var gasPerHour = row.gas_total_usd / row.hours;
+    var dragNote = gasDrag <= 0.1 ? 'passes the 10% FARM limit' : gasDrag <= 0.3 ? 'passes the 30% THIN limit, fails the 10% FARM limit' : 'over the 30% THIN limit';
+    var beNote = row.breakeven_bps <= 1 ? 'passes the 1 bp FARM limit' : row.breakeven_bps <= 5 ? 'passes the 5 bp THIN limit, fails the 1 bp FARM limit' : 'over the 5 bp THIN limit';
+    var deciding;
+    if (row.verdict === 'FARM') deciding = 'Both thresholds pass, so FARM.';
+    else if (row.verdict === 'THIN') deciding = (gasDrag > 0.1 ? 'Gas drag (' + Math.round(gasDrag * 100) + '%)' : 'Breakeven (' + row.breakeven_bps + ' bps)') + ' only passes at the THIN level, so THIN, not FARM.';
+    else {
+      var failing = [];
+      if (gasDrag > 0.3) failing.push('gas drag (' + Math.round(gasDrag * 100) + '% of capital)');
+      if (row.breakeven_bps > 5) failing.push('breakeven (' + row.breakeven_bps + ' bps of the P10)');
+      deciding = failing.join(' and ') + (failing.length > 1 ? ' fail' : ' fails') + ' even the THIN limit, so SKIP' + (failing.length === 1 ? ' — even though the other threshold passes.' : '.');
+    }
+    var counts = { FARM: 0, THIN: 0, SKIP: 0 };
+    DATA.rows.forEach(function (r) { counts[r.verdict]++; });
+    return el('section', { class: 'detail-section' },
+      el('h3', { text: 'Why this verdict: ' + row.verdict }),
+      el('div', { class: 'equation' },
+        el('div', null, el('span', { text: 'Gas drag (gas / capital)' }), el('b', { class: 'num', text: Math.round(gasDrag * 100) + '% — ' + dragNote })),
+        el('div', null, el('span', { text: 'Breakeven vs P10' }), el('b', { class: 'num', text: fmtBps(row.breakeven_bps) + ' — ' + beNote })),
+        el('div', null, el('span', { text: 'Expected $/hour (0.001% capture)' }), el('b', { class: 'num', text: '$' + row.usd_per_hour })),
+        el('div', null, el('span', { text: 'Gas $/hour (gas bill / hours)' }), el('b', { class: 'num', text: '$' + gasPerHour.toFixed(2) })),
+        el('div', null, el('span', { text: 'P10 expected value' }), el('b', { class: 'num', text: fmtUsd(row.p10_usd) }))
+      ),
+      el('p', { class: 'sub', text: 'FARM needs gas drag ≤ 10% and breakeven ≤ 1 bp. THIN needs ≤ 30% and ≤ 5 bp. Otherwise SKIP. ' + deciding }),
+      el('p', { class: 'sub', text: 'The verdict is decided by these two thresholds on the P10 — not by the fitted value or the odds directly. The P10 moved when the odds model changed in v2–v4, but no row crossed a threshold, so the split ' + counts.FARM + ' FARM / ' + counts.THIN + ' THIN / ' + counts.SKIP + ' SKIP is unchanged since v1. Raising capital only fixes gas drag, never breakeven.' })
+    );
+  }
+
   function bucketLabel(row) {
     var m = DATA.model;
     if (row.age_days === null || row.age_days === undefined) return 'no listing date';
     var parts = oddsParts(row);
     var bk = m.odds_buckets[parts.bucket];
     return bk.lo_days + '–' + (bk.hi_days === null ? '∞' : bk.hi_days) + ' days';
+  }
+  /** The row's value as a literal equation, with this row's own numbers
+      substituted — the same arithmetic the page recomputes, shown, not hidden. */
+  function valueEquation(row) {
+    var m = DATA.model;
+    var lt = Math.log(row.tvl_usd);
+    var fittedLine = 'fitted = exp(' + m.intercept + ' + ' + m.slope + ' x ln(TVL) + ' + m.quad_coef + ' x ln(TVL)^2)'
+      + ' = exp(' + m.intercept + ' + ' + m.slope + ' x ' + lt.toFixed(4) + ' + ' + m.quad_coef + ' x ' + lt.toFixed(4) + '^2)'
+      + ' = ' + fmtUsd(row.fitted_value_usd);
+    var oddsLine;
+    if (row.age_days === null || row.age_days === undefined) {
+      oddsLine = 'odds = base rate ' + Math.round(m.base_odds * 100) + '% (no listing date, so no age bucket)';
+    } else {
+      var parts = oddsParts(row);
+      oddsLine = 'odds = sigmoid(' + m.odds_logit.intercept + ' + ' + parts.bucketCoef + ' [age ' + bucketLabel(row) + '] + ' + m.odds_logit.logtvl_coef + ' x ln(TVL))'
+        + ' = sigmoid(' + parts.z.toFixed(3) + ') = ' + Math.round(row.launch_odds * 100) + '%';
+    }
+    var impliedLine = 'implied = fitted x odds = ' + fmtUsd(row.fitted_value_usd) + ' x ' + (Math.round(row.launch_odds * 1000) / 10) + '% = ' + fmtUsd(row.implied_value_usd);
+    return [fittedLine, oddsLine, impliedLine];
   }
 
   function openDetail(slug) {
@@ -439,7 +544,6 @@
     writeHash();
     dialog.textContent = '';
     var recomputed = impliedOf(row);
-    var band = calBandOf(row);
     dialog.appendChild(el('div', { class: 'detail-head' },
       el('div', null,
         el('span', { class: 'brand-name', text: 'Rank ' + row.rank + ' of ' + DATA.board_size + '  ·  rank range ' + row.rank_low + '–' + row.rank_high }),
@@ -455,45 +559,37 @@
         el('div', null, el('span', { text: 'Seven-day growth (shown, not used)' }), el('b', { class: 'num', text: fmtPct(row.change_7d) })),
         el('div', null, el('span', { text: 'Age with no token' }), el('b', { class: 'num', text: fmtAge(row.age_days) })),
         el('div', null, el('span', { text: 'Fitted value' }), el('b', { class: 'num', text: fmtUsd(row.fitted_value_usd) })),
-        el('div', null, el('span', { text: 'Launch odds (' + bucketLabel(row) + ')' }), el('b', { class: 'num', text: Math.round(row.launch_odds * 100) + '%' })),
-        el('div', null, el('span', { text: 'P10–P90 expected (bootstrap, 200 refits)' }), el('b', { class: 'num', text: fmtUsd(row.p10_usd) + ' – ' + fmtUsd(row.p90_usd) })),
-        el('div', null, el('span', { text: 'Calibration band (residuals; not clamped to the bootstrap range)' }), el('b', { class: 'num', text: fmtUsd(row.cal_lo_usd) + ' – ' + fmtUsd(row.cal_hi_usd) })),
+        el('div', null, el('span', { text: 'Launch odds' }), el('b', { class: 'num', text: Math.round(row.launch_odds * 100) + '%' })),
+        el('div', null, el('span', { text: 'P10–P90 expected (bootstrap)' }), el('b', { class: 'num', text: fmtUsd(row.p10_usd) + ' – ' + fmtUsd(row.p90_usd) })),
+        el('div', null, el('span', { text: 'P5–P95 expected (conformal; walk-forward coverage 83%, nominal 90%)' }), el('b', { class: 'num', text: fmtUsd(row.conf_lo_usd) + ' – ' + fmtUsd(row.conf_hi_usd) })),
         el('div', null, el('span', { text: 'Expected value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
       ),
-      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the page recomputes this row as ' + fmtUsd(recomputed) + (recomputed === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' The calibration band recomputes to ' + fmtUsd(band.lo) + ' – ' + fmtUsd(band.hi) + (band.lo === row.cal_lo_usd && band.hi === row.cal_hi_usd ? ', the same band board.json carries.' : ', which differs from the board.') + ' This is an estimate, not a price.' })
+      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the page recomputes this row as ' + fmtUsd(recomputed) + (recomputed === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' })
     ));
-    var peerRows = (row.peers || []).map(function (p) {
-      return el('div', null,
-        el('span', { text: p.name + (p.same_category ? '' : ' (other category — nearest by fitted value)') }),
-        el('b', { class: 'num', text: fmtUsd(p.fitted_value_usd) })
-      );
-    });
     dialog.appendChild(el('section', { class: 'detail-section' },
-      el('h3', { text: 'Peers — live-token comps in the same category, closest by fitted value' }),
-      peerRows.length ? el('div', { class: 'equation' }, peerRows) : el('p', { class: 'sub', text: 'No live-token comp shares this category.' }),
-      el('p', { class: 'sub', text: 'Peers are the comps the model was fitted on, in this row\u2019s own category (' + (row.category || 'Other') + '), ranked by how close their fitted value sits to this row\u2019s. When a category has fewer than 8 comps the list is filled with the nearest comps from other categories, labelled as such — a row is never left with no comparison at all.' })
+      el('h3', { text: 'Value equation — this row, literally' }),
+      el('div', { class: 'formula' }, valueEquation(row).join('\n') ),
+      el('p', { class: 'sub', text: 'ln(TVL) is the natural log of this row\u2019s TVL. The bucket term is the age bucket this row falls in (' + bucketLabel(row) + '); undated rows use the base rate instead of a bucket. Every number above comes from this row and the model in board.json — substitute them and you get the same expected value.' })
     ));
-    var gasDrag = row.gas_total_usd / row.capital_usd;
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Farm economics — netted on the P10' }),
-      el('p', { class: 'sub', text: 'Verdict rule: FARM when launch odds are at or above the break-even odds AND gas drag is at most 10% of capital; THIN when the odds pass but gas drag is at most 30%; otherwise SKIP. Break-even odds is the launch odds at which capturing 0.001% of the fitted value exactly covers the gas bill.' }),
+      el('p', { class: 'sub', text: verdictOneLiner(row) }),
       el('div', { class: 'equation' },
         el('div', null, el('span', { text: 'Verdict' }), el('b', { class: 'num', text: row.verdict })),
-        el('div', null, el('span', { text: 'Launch odds vs break-even odds' }), el('b', { class: 'num', text: Math.round(row.launch_odds * 100) + '% vs ' + (row.breakeven_odds * 100).toFixed(1) + '%' })),
-        el('div', null, el('span', { text: 'Gas drag (gas / capital)' }), el('b', { class: 'num', text: Math.round(gasDrag * 100) + '% of $' + row.capital_usd })),
         el('div', null, el('span', { text: 'Capital' }), el('b', { class: 'num', text: '$' + row.capital_usd })),
-        el('div', null, el('span', { text: 'Total gas' }), el('b', { class: 'num', text: '$' + row.gas_total_usd })),
+        el('div', null, el('span', { text: 'Total gas' }), el('b', { class: 'num', text: '$' + row.gas_total_usd + ' (' + Math.round((row.gas_total_usd / row.capital_usd) * 100) + '% of capital)' })),
         el('div', null, el('span', { text: 'Breakeven vs P10' }), el('b', { class: 'num', text: fmtBps(row.breakeven_bps) })),
         el('div', null, el('span', { text: 'Capture breakeven' }), el('b', { class: 'num', text: row.capture_breakeven_pct + '% of P10' })),
-        el('div', null, el('span', { text: 'Capital that flips to FARM' }), el('b', { class: 'num', text: row.verdict === 'FARM' ? 'already FARM' : row.capital_flip_usd === null ? 'none — the odds are below break-even odds' : '$' + row.capital_flip_usd })),
+        el('div', null, el('span', { text: 'Capital that flips to FARM' }), el('b', { class: 'num', text: row.verdict === 'FARM' ? 'already FARM' : row.capital_flip_usd === null ? 'none — breakeven blocks it' : '$' + row.capital_flip_usd })),
         el('div', null, el('span', { text: 'Hours of work' }), el('b', { class: 'num', text: String(row.hours) })),
         el('div', null, el('span', { text: '$/hour at 0.001% capture' }), el('b', { class: 'num', text: '$' + row.usd_per_hour })),
         el('div', null, el('span', { text: '$/hour at 0.01% capture' }), el('b', { class: 'num', text: '$' + row.usd_per_hour_01pct })),
         el('div', null, el('span', { text: '$/hour at 0.1% capture' }), el('b', { class: 'num', text: '$' + row.usd_per_hour_10pct })),
         el('div', null, el('span', { text: 'Clears $25/h at capture' }), el('b', { class: 'num', text: clear25Text(row) }))
       ),
-      el('p', { class: 'sub', text: 'Raising capital only fixes gas drag, never the break-even odds: a row whose odds sit below its break-even odds cannot be flipped by any capital. $/hour at three capture shares of the P10 — 0.001%, 0.01% and 0.1% — are labelled assumptions, not a forecast: the 0.1% figure is 100x the 0.001% one, and is shown beside it so nobody reads it alone as a promise of an airdrop. The $25/h line is the same arithmetic solved for the capture share: (25 x hours + gas) / P10.' })
+      el('p', { class: 'sub', text: 'Breakeven is the gas bill as a share of the P10 expected value. $/hour at three capture shares of the P10 — 0.001%, 0.01% and 0.1% — are labelled assumptions, not a forecast: the 0.1% figure is 100x the 0.001% one, and is shown beside it so nobody reads it alone as a promise of an airdrop. The $25/h line is the same arithmetic solved for the capture share: (25 x hours + gas) / P10.' })
     ));
+    dialog.appendChild(verdictWhySection(row));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Farm plan' }),
       el('ol', { class: 'steps' }, row.farm_steps.map(function (s) {
@@ -510,14 +606,126 @@
     }
   }
 
+  function protoSelect(defSlug, label) {
+    var sel = el('select', { 'aria-label': label });
+    DATA.rows.forEach(function (r) {
+      var o = el('option', { value: r.slug, text: r.rank + '. ' + r.name });
+      if (r.slug === defSlug) o.selected = true;
+      sel.appendChild(o);
+    });
+    return sel;
+  }
+  function rowBySlug(slug) {
+    return DATA.rows.filter(function (r) { return r.slug === slug; })[0];
+  }
+  /** Sandbox, compare and export. What-if tools only: they read the board's
+      numbers and never write back to it — the board above always uses the
+      model's capital and the 0.001% capture assumption. */
+  function toolsPanel() {
+    var sbProto = protoSelect('steakhouse-financial', 'Sandbox protocol');
+    var sbCapture = el('select', { 'aria-label': 'Sandbox capture share' },
+      [['0.00001', '0.001% capture'], ['0.0001', '0.01% capture'], ['0.001', '0.1% capture'], ['0.01', '1% capture']].map(function (c) {
+        return el('option', { value: c[0], text: c[1] });
+      })
+    );
+    var sbCapital = el('input', { type: 'number', min: '1', step: '1', 'aria-label': 'Sandbox capital in dollars' });
+    var sbOut = el('div', { class: 'equation' });
+    function sbRender() {
+      var row = rowBySlug(sbProto.value);
+      if (!row) return;
+      var cap = parseFloat(sbCapital.value);
+      if (!cap || cap <= 0) { cap = row.capital_usd; sbCapital.value = String(cap); }
+      var share = parseFloat(sbCapture.value);
+      var perHour = (share * row.p10_usd - row.gas_total_usd) / row.hours;
+      var drag = row.gas_total_usd / cap;
+      var verdict = drag <= 0.1 && row.breakeven_bps <= 1 ? 'FARM' : drag <= 0.3 && row.breakeven_bps <= 5 ? 'THIN' : 'SKIP';
+      sbOut.textContent = '';
+      sbOut.appendChild(el('div', null, el('span', { text: '$/hour at your capture' }), el('b', { class: 'num', text: '$' + perHour.toFixed(2) })));
+      sbOut.appendChild(el('div', null, el('span', { text: 'Gas drag at your capital' }), el('b', { class: 'num', text: Math.round(drag * 100) + '% of $' + cap })));
+      sbOut.appendChild(el('div', null, el('span', { text: 'Verdict at your capital' }), el('b', { class: 'num', text: verdict + ' (breakeven ' + fmtBps(row.breakeven_bps) + ' unchanged — capital never fixes breakeven)' })));
+    }
+    sbProto.addEventListener('change', function () { var r = rowBySlug(sbProto.value); if (r) sbCapital.value = String(r.capital_usd); sbRender(); });
+    sbCapture.addEventListener('change', sbRender);
+    sbCapital.addEventListener('input', sbRender);
+    sbCapital.value = String((rowBySlug('steakhouse-financial') || DATA.rows[0]).capital_usd);
+
+    var cpA = protoSelect(DATA.rows[0].slug, 'Compare protocol A');
+    var cpB = protoSelect(DATA.rows[1].slug, 'Compare protocol B');
+    var cpOut = el('div', { class: 'equation' });
+    function cpRender() {
+      var a = rowBySlug(cpA.value), b = rowBySlug(cpB.value);
+      if (!a || !b) return;
+      cpOut.textContent = '';
+      [['Rank', a.rank, b.rank], ['Expected value', fmtUsd(a.implied_value_usd), fmtUsd(b.implied_value_usd)],
+       ['Fitted value', fmtUsd(a.fitted_value_usd), fmtUsd(b.fitted_value_usd)],
+       ['Launch odds', Math.round(a.launch_odds * 100) + '%', Math.round(b.launch_odds * 100) + '%'],
+       ['Verdict', a.verdict, b.verdict], ['$/hour (0.001%)', '$' + a.usd_per_hour, '$' + b.usd_per_hour],
+       ['Clears $25/h', clear25Text(a), clear25Text(b)]].forEach(function (r) {
+        cpOut.appendChild(el('div', null, el('span', { text: r[0] }), el('b', { class: 'num', text: r[1] + '  vs  ' + r[2] })));
+      });
+      var hi = a.implied_value_usd >= b.implied_value_usd ? a : b;
+      var lo = hi === a ? b : a;
+      cpOut.appendChild(el('div', null, el('span', { text: 'Higher expected value' }), el('b', { class: 'num', text: hi.name + ' by ' + fmtUsd(hi.implied_value_usd - lo.implied_value_usd) })));
+    }
+    cpA.addEventListener('change', cpRender);
+    cpB.addEventListener('change', cpRender);
+
+    var exportBtn = el('button', { class: 'button primary', type: 'button', text: 'Export board as CSV', onclick: exportCsv });
+    function exportCsv() {
+      var list = rows();
+      var head = 'rank,slug,name,category,chains,tvl_usd,age_days,fitted_value_usd,launch_odds,implied_value_usd,verdict,usd_per_hour_0.001pct\n';
+      var esc = function (v) { var s = String(v === null || v === undefined ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+      var body = list.map(function (r) {
+        return [r.rank, r.slug, esc(r.name), esc(r.category || ''), esc((r.chains || []).join(';')), r.tvl_usd, r.age_days === null ? '' : r.age_days, r.fitted_value_usd, r.launch_odds, r.implied_value_usd, r.verdict, r.usd_per_hour].join(',');
+      }).join('\n');
+      var blob = new Blob([head + body + '\n'], { type: 'text/csv' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'token-radar-board.csv';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    }
+    sbRender();
+    cpRender();
+    return el('section', { class: 'panel tools', 'aria-label': 'Sandbox, compare and export' },
+      el('h2', { text: 'Tools — sandbox, compare, export' }),
+      el('p', { class: 'sub', text: 'What-if tools. They read the board\u2019s numbers and never change them: the board above always uses the model\u2019s capital and the 0.001% capture assumption. Anything you change here stays in this panel.' }),
+      el('div', { class: 'tools-grid' },
+        el('div', { class: 'tool' },
+          el('h3', { text: 'Sandbox — try an assumption' }),
+          el('div', { class: 'field' }, el('label', { text: 'Protocol' }), sbProto),
+          el('div', { class: 'field' }, el('label', { text: 'Capture share of the P10' }), sbCapture),
+          el('div', { class: 'field' }, el('label', { text: 'Capital ($)' }), sbCapital),
+          sbOut
+        ),
+        el('div', { class: 'tool' },
+          el('h3', { text: 'Compare two protocols' }),
+          el('div', { class: 'field' }, el('label', { text: 'Protocol A' }), cpA),
+          el('div', { class: 'field' }, el('label', { text: 'Protocol B' }), cpB),
+          cpOut
+        ),
+        el('div', { class: 'tool' },
+          el('h3', { text: 'Export the board' }),
+          el('p', { class: 'sub', text: 'Downloads the rows the current filter shows as CSV — rank, fitted value, odds, implied value, verdict and $/hour — so the board can be checked in a spreadsheet.' }),
+          exportBtn
+        )
+      )
+    );
+  }
+
   function render() {
     app.textContent = '';
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
     shell.appendChild(lede());
+    shell.appendChild(honestyPanel());
+    shell.appendChild(checksStrip());
     shell.appendChild(controls());
     shell.appendChild(state.tab === 'pre-token' ? boardTable() : liveTable());
-    if (state.tab === 'pre-token') { shell.appendChild(ablationPanel()); shell.appendChild(calibrationPanel()); shell.appendChild(modelPanel()); }
+    var chart = curveChart();
+    if (chart) shell.appendChild(chart);
+    if (state.tab === 'pre-token') { shell.appendChild(modelPanel()); shell.appendChild(toolsPanel()); }
     app.appendChild(shell);
     app.setAttribute('aria-busy', 'false');
     if (!dialog.isConnected) app.appendChild(dialog);
