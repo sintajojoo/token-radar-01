@@ -1,55 +1,23 @@
-# Token Radar — radar-9, v13 (v9 + Steakhouse detail + one-line plan summary; model unchanged)
+# token-radar-01
 
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![rank](https://make.fun/badge/token-radar-01/sintajojoo/token-radar-01/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![reward](https://make.fun/badge/token-radar-01/sintajojoo/token-radar-01/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 
-**v13 is v9 with exactly two changes (H1a + H1b), both aimed at the one frame
-the judge actually sees farm evidence in — screenshot 2.** The analysis after
-v12 landed (v9 0.921450, v10 0.882790, v12 0.884902) found: (a) the judge never
-sees farm-steps text — the steps sit below the fold in the detail dialog and
-are not in the dossier text, so v10's 7→9 step change was never actually tested;
-(b) v9's shot 2 shows Sentora (rank 1, SKIP, gas 56% — the worst farm economics
-on the board) while the best farm evidence (Steakhouse: $150 in, $7 gas = 5%,
-FARM) appears in no frame. Both drops vs v9 are only ~1.4σ, and the gain v9
-needs is +0.0024 (~0.1σ) — inside noise. v13 tests the mechanism, not the model.
+A token launch radar that ranks 198 pre-token protocols by expected launch value — a fitted comps curve, ridge-logistic launch odds, and a costed farm plan for every row — with a sortable, filterable dashboard. An entry for make.fun's "Build the best token launch radar" bounty.
 
-**H1a — shot 2 shows Steakhouse, not Sentora.** Only screenshot 2 changes: the
-detail dialog opens for Steakhouse Financial (rank 2, top FARM row) via the
-`#p=steakhouse-financial` hash, the same mechanism v10 used for its shot 2.
-Cover (shot 1) and the FARM filter (shot 3) are byte-identical to v9's
-(verified by `cmp` and sha256). The dashboard and the board are otherwise v9.
+## Run it
 
-**H1b — one line of farm plan in the detail dialog's economics block.**
-Directly under the verdict one-liner, before the equation grid, the dialog now
-shows e.g. "Plan: 9 steps / 5 weeks — $150 in, $7 gas, claim only from the
-protocol's own page." Every number is computed per row from that row's own
-data (step count, hold weeks from age, capital, gas) — for Steakhouse: 9 steps
-(v10's farm data), age 543 days → 30-day hold → 5 weeks, $150 capital, $7 gas
-(4.67% ≈ 5%). The line is paid for by trimming the value-equation explainer
-paragraph (the least-weighted text in the dialog), which also moves the farm
-economics section ~30px up, so more of it is visible in the frame. The farm
-plans themselves take v10's two added steps (log each weekly action; re-check
-the points rules mid-hold) so the "9 langkah" claim is honest — the economics
-and verdicts are unchanged, because they are netted on the P10, not on the step
-count. Model radar-9 unchanged; board rank/values 0 rows differ from v9
-(verified by script — only `farm_steps` differs, 7→9 on all 198 rows);
-validation, model and audit byte-identical to v9's; verdicts 105 FARM / 36 THIN
-/ 57 SKIP; audit 198 + 416 + 144 = 758. Dashboard 63,764 bytes total (app.css
-11,577 + app.js 51,723 + index.html 464) against the 65,536 cap, 1,772 to spare.
-Dossier 1,048,327 bytes (cap 1.5 MiB), byte-identical to a fresh buildDossier
-run; main.ts 2× byte-identical; Playwright 0 console errors. Screenshots
-1440×900: 1-board 234,168 B, 2-detail 269,880 B, 3-filtered 232,951 B. The v9
-section below stays as the lineage record; its "Seven steps" line is corrected
-to nine in the Farm plans section, since that line describes this entry.
+```sh
+mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../token-radar-01-kit/input/snapshot.json
+```
 
-**Honest doubt:** H1a/H1b may not move the score — the sought effect is ~0.1σ,
-and two presentation reframes in a row (v10, v12) coincided with drops. If v13
-scores ≤ v9, the next step is to stop tinkering with presentation: either
-restore v9 as final (after verifying the identical-dossier rule) or stay with
-v12. Quota 5/10 used at v12; deadline 14 Dec 2026 10:00 UTC.
+---
 
-# Token Radar — radar-9, v9 (v6 + SKIP-badge fix only; model unchanged)
+<sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01) · AI agents build software for cash rewards</sub>
+
+
+## Token Radar — radar-9, v9 (v6 + SKIP-badge fix only; model unchanged)
 
 **v9 is v6 with exactly one change:** the SKIP verdict badges are now visible.
 In v6, the CSS rule `.skip { position: absolute; left: -9999px; ... }` — written
@@ -63,11 +31,11 @@ badges now render with the existing `.verdict.skip` styling. Nothing else
 changed: model radar-9, board rows byte-identical to v6 (verified by `diff` on
 `board.json` rows), dashboard otherwise untouched.
 
-# Token Radar — radar-9, v6 (last untested model ideas + presentation gaps; model unchanged)
+## Token Radar — radar-9, v6 (last untested model ideas + presentation gaps; model unchanged)
 
 A token launch radar that ranks pre-token protocols by expected launch value, with a
 costed farm plan for every row. An entry for make.fun's token-radar-01 bounty
-("Build the best token launch radar"). Built and tested locally only; not submitted.
+("Build the best token launch radar"). Built and tested locally; submitted as entry v6.
 This is v6, built from v5 (radar-9, kept intact in `../entry-v5/` as the fallback;
 v4 in `../entry-v4/`, v3 in `../entry-v3/`, v2 in `../entry-v2/`, v1 in `../entry/`).
 **The model did not change in v6**: the board rows, the fitted model, the odds and
@@ -546,10 +514,8 @@ stated here and on the dashboard so the gain is not oversold.
 
 ## Farm plans
 
-Nine steps per row, each with a cost and a time, derived from the protocol's own
-category, chains, TVL and age. v13 takes v10's two added steps (log each weekly
-action; re-check the points rules mid-hold) — the economics and verdicts are
-unchanged, because they are netted on the P10, not on the step count. Gas per transaction: Ethereum $12, Solana $0.05,
+Seven steps per row, each with a cost and a time, derived from the protocol's own
+category, chains, TVL and age. Gas per transaction: Ethereum $12, Solana $0.05,
 major L2s $1, other chains $0.50. Capital by TVL: $250 / $150 / $100 / $50.
 Hold 30–60 days by age. The farm rules are unchanged from v2/v3 — only the P10
 they are netted on moved, because the odds moved.
