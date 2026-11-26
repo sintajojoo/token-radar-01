@@ -1,4 +1,5 @@
-/* Integrity strip, verdict badges, ablation and odds tables. */
+/* Token Radar's dark terminal theme. The seven palette values, two radii and two families are the
+   whole style; everything else is spacing, a hairline and a type step. */
 :root {
   --canvas: #0a0f0d;
   --surface: #101713;
@@ -30,7 +31,7 @@ body {
   text-wrap: pretty;
 }
 h1, h2, h3 { margin: 0; letter-spacing: -0.02em; text-wrap: balance; }
-h1 { font-size: 20px; line-height: 1.15; font-weight: 600; }
+h1 { font-size: 22px; line-height: 1.15; font-weight: 600; }
 h2 { font-size: 20px; line-height: 1.2; font-weight: 600; }
 h3 { font-size: 16px; line-height: 1.25; font-weight: 600; }
 p { margin: 0; }
@@ -54,21 +55,21 @@ a.skip:focus { left: var(--step-4); top: var(--step-4); }
 .brand-name { font-family: var(--font-num); font-size: 13px; letter-spacing: 0.02em; color: var(--muted); }
 .top-meta { display: flex; flex-wrap: wrap; gap: var(--step-3); justify-content: flex-end; color: var(--muted); font-size: 13px; }
 .top-meta span { white-space: nowrap; }
-.lede { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr); gap: var(--step-5); padding: 2px 0; }
-.lede p { color: var(--muted); max-width: 62ch; margin-top: 4px; }
-.facts { display: grid; gap: 4px; align-content: start; border-left: 1px solid var(--border); padding-left: var(--step-5); }
+.lede { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr); gap: var(--step-5); padding: var(--step-2) 0; }
+.lede p { color: var(--muted); max-width: 62ch; margin-top: var(--step-2); }
+.facts { display: grid; gap: var(--step-2); align-content: start; border-left: 1px solid var(--border); padding-left: var(--step-5); }
 .fact { display: flex; align-items: baseline; justify-content: space-between; gap: var(--step-3); }
 .fact b { font-family: var(--font-num); font-size: 15px; font-weight: 500; }
 .fact span { color: var(--muted); font-size: 13px; }
 
-.controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--step-2); padding: 4px 0; border-top: 1px solid var(--border); }
+.controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--step-3); padding: 6px 0; border-top: 1px solid var(--border); }
 .field { display: grid; gap: var(--step-1); }
 .field label { color: var(--muted); font-size: 12px; }
 .field input, .field select {
-  min-height: 32px; padding: 0 var(--step-3); border: 1px solid var(--border); border-radius: var(--radius-control);
-  background: var(--surface); min-width: 130px;
+  min-height: 36px; padding: 0 var(--step-3); border: 1px solid var(--border); border-radius: var(--radius-control);
+  background: var(--surface); min-width: 150px;
 }
-.field input { min-width: 170px; }
+.field input { min-width: 220px; }
 .tabs { display: flex; gap: var(--step-1); padding: 3px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
 .tabs button { min-height: 30px; padding: 0 var(--step-3); border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
 .tabs button[aria-pressed="true"] { background: var(--accent); color: #06281a; }
@@ -76,8 +77,8 @@ a.skip:focus { left: var(--step-4); top: var(--step-4); }
 
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-panel); overflow: hidden; }
 .table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.35; }
-th, td { padding: 5px var(--step-3); border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 7px var(--step-3); border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
 th { color: var(--muted); font-size: 12px; font-weight: 500; white-space: nowrap; }
 th button { display: inline-flex; align-items: center; gap: var(--step-1); border: 0; background: none; padding: 0; color: inherit; font: inherit; }
 th button:hover { color: var(--ink); }
@@ -85,9 +86,8 @@ tbody tr { cursor: pointer; }
 tbody tr:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
 tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
 .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.name { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.name b { font-weight: 600; white-space: nowrap; }
-.name .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.name { display: grid; gap: 2px; }
+.name b { font-weight: 600; }
 .sub { color: var(--muted); font-size: 12px; }
 .pos { color: var(--accent); }
 .neg { color: var(--negative); }
@@ -139,7 +139,7 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 16
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
 
-/* Size-curve chart. */
+/* radar-9 additions: size-curve chart (slimmed in v5 to make room for the honesty panel). */
 .chart { margin: var(--step-2) 0; padding: var(--step-2) var(--step-5); }
 .chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--step-4); flex-wrap: wrap; }
 .chart-head .sub { max-width: 62ch; }
@@ -148,11 +148,11 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 16
 .chart-body .axis { font: 11px var(--font-num); fill: var(--muted); }
 .chart-body .grid { stroke: var(--border); stroke-width: 1; }
 
-/* Claim panel above the table (v10 reframe); limits live in the model panel below. */
+/* v5: honesty panel — the claim / don't-claim split, readable in the board screenshot. */
 .honesty { margin-top: var(--step-2); padding: var(--step-2) var(--step-5); display: grid; gap: var(--step-2); }
 .honesty-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--step-4); flex-wrap: wrap; }
 .honesty-head .sub { max-width: 62ch; }
-.honesty-cols { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: var(--step-4); }
+.honesty-cols { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.15fr) 200px; gap: var(--step-4); }
 .honesty-col { display: grid; gap: var(--step-1); align-content: start; }
 .honesty-col p { color: var(--muted); font-size: 12px; line-height: 1.45; }
 .claim-h { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
@@ -161,24 +161,18 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 16
 .hist-body svg { width: 100%; height: auto; display: block; }
 .hist-body .axis { font: 10px var(--font-num); fill: var(--muted); }
 
-/* Tools panel — sandbox, compare, export. */
+/* v6: tools panel — sandbox, compare, export. Reuses .panel/.field/.equation/.button. */
 .tools { margin-top: var(--step-4); padding: var(--step-5); display: grid; gap: var(--step-3); }
 .tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--step-4); }
 .tool { display: grid; gap: var(--step-2); align-content: start; }
 .tool .field input, .tool .field select { min-width: 0; width: 100%; }
 .tool .equation { margin-top: var(--step-2); }
 
-/* v10: lanes — all 758 protocols, one lane each. Reuses .panel/.sub. */
-.lanes { margin-top: var(--step-4); padding: var(--step-5); display: grid; gap: var(--step-3); }
-.lane-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--step-4); }
-.lane { display: grid; gap: var(--step-1); align-content: start; }
-.lane p { color: var(--muted); font-size: 12px; line-height: 1.45; }
-.lane details { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-.lane summary { cursor: pointer; color: var(--ink); }
-.strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--step-3); padding: 4px 0; border-top: 1px solid var(--border); }
-.check { display: flex; gap: var(--step-2); align-items: flex-start; padding: 4px var(--step-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-control); }
+/* radar-6 additions: integrity strip, verdict badges, ablation and odds tables. */
+.strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--step-3); padding: 6px 0; border-top: 1px solid var(--border); }
+.check { display: flex; gap: var(--step-2); align-items: flex-start; padding: 6px var(--step-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-control); }
 .check b { display: block; font-size: 12px; }
-.check .sub { display: block; margin-top: 2px; font-size: 11px; line-height: 1.3; }
+.check .sub { display: block; margin-top: 2px; font-size: 11px; line-height: 1.35; }
 .pass { color: var(--accent); font-family: var(--font-num); font-size: 12px; font-weight: 700; }
 .fail { color: var(--negative); font-family: var(--font-num); font-size: 12px; font-weight: 700; }
 .verdict { display: inline-block; min-width: 52px; text-align: center; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
@@ -188,3 +182,28 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 16
 .ablation { display: grid; gap: var(--step-2); margin-top: var(--step-2); }
 .ablation-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: var(--step-3); align-items: baseline; padding: var(--step-2) 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .model h3 { margin-top: var(--step-4); }
+
+/* v12: two-surface cover — board + detail side by side in one frame (Clearboard
+   lesson). The detail drawer sits in the right 520px; the board reflows left
+   so no column hides behind it. Only active with #split=1 in the URL. The
+   left column is compacted so three board rows still fit in 900px. */
+.split .shell { margin: 0 520px 0 0; max-width: none; padding: 2px 20px 48px; }
+.split .bar { width: 80px; }
+.split th, .split td { padding: 5px 8px; }
+.split .lede { padding: 4px 0; }
+.split .lede h1 { font-size: 20px; }
+.split .lede p { font-size: 13px; line-height: 1.4; }
+.split .facts { grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+.split .fact { flex-wrap: wrap; gap: 0 8px; }
+.split .fact span { font-size: 12px; }
+.split .fact b { font-size: 13px; }
+.split .honesty { margin-top: 4px; padding: 6px 16px; gap: 4px; }
+.split .honesty-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 150px; }
+.split .honesty-col p { font-size: 11px; line-height: 1.35; }
+.split .strip { padding: 2px 0; gap: 8px; }
+.split .check { padding: 4px 6px; }
+.split .check .sub { font-size: 10px; line-height: 1.3; }
+.split .controls { padding: 0; gap: 8px; }
+.split .field select { min-width: 100px; }
+.split .field input { min-width: 140px; }
+.split .name .sub { font-size: 11px; }

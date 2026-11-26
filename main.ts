@@ -1,7 +1,6 @@
-// Token radar, model radar-9 (entry v10; model unchanged from v4/v5/v6 —
-// v10 changes the presentation only: SKIP-badge fix, honesty reframed below
-// the table, denser board, bootstrap-first ranges, 9-step farm plans, a
-// 758-protocol lanes view. See README.md.)
+// Token radar, model radar-9 (entry v12; model unchanged from v4/v5 —
+// v12 adds a #split=1 two-surface cover state to the dashboard only:
+// board + detail side by side. See README.md.)
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), fits the
 // size curve and launch odds on the snapshot itself (lib/model.ts), writes the ranked board to

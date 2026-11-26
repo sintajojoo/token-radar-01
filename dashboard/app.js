@@ -114,6 +114,13 @@
     if (params.get('chain')) state.chain = params.get('chain');
     if (params.get('verdict')) state.verdict = params.get('verdict');
     if (params.get('watchlist') === '1') state.watchlist = true;
+    // v12: split cover — board + detail side by side in one frame (Clearboard
+    // lesson). The detail opens non-modal, no backdrop, beside the board.
+    if (params.get('split') === '1') {
+      state.split = true;
+      document.body.classList.add('split');
+      if (!state.selected) state.selected = 'steakhouse-financial';
+    }
   }
   function writeHash() {
     var params = new URLSearchParams();
@@ -170,19 +177,22 @@
   }
 
   function lede() {
+    var v = DATA.validation;
     var farm = { FARM: 0, THIN: 0, SKIP: 0 };
     DATA.rows.forEach(function (r) { farm[r.verdict]++; });
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: DATA.watchlist_size + ' watchlist protocols, ranked by expected launch value' }),
-        el('p', { text: 'The watchlist is the floor: $' + Math.round(DATA.floor_usd / 1e6) + 'M+ TVL, no token on record. All ' + DATA.board_size + ' rankable pre-token protocols, ranked by expected value: fitted value x launch odds. A model, not a promise.' }),
+        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The board ranks all ' + DATA.board_size + ' rankable pre-token protocols by expected value: fitted value from the quadratic size curve times launch odds (age bucket, log TVL). Implied value is a model, not a promise.' }),
         el('p', { class: 'sub', text: 'Farm verdicts, netted on the P10: ' + farm.FARM + ' FARM, ' + farm.THIN + ' THIN, ' + farm.SKIP + ' SKIP.' })
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
         el('div', { class: 'fact' }, el('span', { text: 'Pre-token rows scored' }), el('b', { text: String(DATA.board_size) })),
         el('div', { class: 'fact' }, el('span', { text: 'Audit: ranked + live + excluded' }), el('b', { text: DATA.audit.ranked + ' + ' + DATA.audit.live_token + ' + ' + DATA.audit.excluded + ' = ' + DATA.audit.total })),
-        el('div', { class: 'fact' }, el('span', { text: 'Page recomputes board.json' }), el('b', { text: recomputeCheck() + ' / ' + DATA.board_size + ' rows match' }))
+        el('div', { class: 'fact' }, el('span', { text: 'Page recomputes board.json' }), el('b', { text: recomputeCheck() + ' / ' + DATA.board_size + ' rows match' })),
+        el('div', { class: 'fact' }, el('span', { text: 'Size curve, R²' }), el('b', { text: v.curve.r2 + ' on ' + v.curve.n_comps + ' comps' })),
+        el('div', { class: 'fact' }, el('span', { text: 'LOO error (log)' }), el('b', { text: v.quad.loo_median_abs_log_error + ', flat ' + v.flat_baseline.median_abs_log_error }))
       )
     );
   }
@@ -202,23 +212,28 @@
       '<text x="0" y="56" class="axis">0%</text><text x="86" y="56" class="axis">50%</text><text x="172" y="56" class="axis">100%</text></svg>';
   }
 
-  function claimPanel() {
+  function honestyPanel() {
     var v = DATA.validation;
-    return el('section', { class: 'panel honesty', 'aria-label': 'Why this curve' },
+    return el('section', { class: 'panel honesty', 'aria-label': 'What we claim and what we do not claim' },
       el('div', { class: 'honesty-head' },
-        el('h2', { text: 'Why this curve — and what it costs to doubt it' }),
-        el('span', { class: 'sub', text: 'Blind-test scores, not adjectives. The limits are below the table.' })
+        el('h2', { text: 'What we claim — and what we don\u2019t' }),
+        el('span', { class: 'sub', text: 'Blind-test scores, not adjectives. Full tables are below.' })
       ),
       el('div', { class: 'honesty-cols' },
         el('div', { class: 'honesty-col' },
-          el('b', { class: 'claim-h', text: 'Kept because it wins both blind tests' }),
-          el('p', { text: 'Quadratic kept because it wins both pre-set blind tests (LOO ' + v.quad.loo_median_abs_log_error + ' vs ' + v.size_only.loo_median_abs_log_error + '; walk-forward ' + v.quad.walkforward_median_abs_log_error + ' vs ' + v.size_only.walkforward_median_abs_log_error + '). Within 3x: ' + Math.round(v.quad.loo_within_3x * 1000) / 10 + '% LOO, ' + Math.round(v.quad.walkforward_within_3x * 1000) / 10 + '% walk-forward. Odds beat the base rate (Brier ' + v.odds.brier_loo + ' vs ' + v.odds.base_brier + ').' }),
-          el('p', { text: (v.ablation.length - 1) + ' rival terms refused on the same two tests; the full table is below. Limits are in the validation panel under the table.' })
+          el('b', { class: 'claim-h', text: 'We claim' }),
+          el('p', { text: 'The board ranks 198 pre-token protocols by fitted value \u00d7 launch odds. The quadratic curve beats the linear curve on the two pre-set blind tests (LOO ' + v.quad.loo_median_abs_log_error + ' vs ' + v.size_only.loo_median_abs_log_error + '; walk-forward ' + v.quad.walkforward_median_abs_log_error + ' vs ' + v.size_only.walkforward_median_abs_log_error + ') \u2014 but only just.' }),
+          el('p', { text: 'Launch odds beat the base rate (Brier ' + v.odds.brier_loo + ' vs ' + v.odds.base_brier + ') and the v2 blend (' + v.odds.v2_brier_loo + ').' })
+        ),
+        el('div', { class: 'honesty-col' },
+          el('b', { class: 'claim-h dont', text: 'We don\u2019t claim' }),
+          el('p', { text: 'Quad vs linear is near a coin flip: 5-fold favours linear (' + v.size_only_fivefold.median_abs_log_error + ' vs ' + v.quad_fivefold.median_abs_log_error + '), and repeated 5-fold agrees (linear 1.2665, quad 1.2859). The odds gain over v2 is small: Brier 0.2092 \u2192 0.2028.' }),
+          el('p', { text: 'TVL is counted twice \u2014 in the fitted value and in the odds \u2014 and a launch may attract TVL first. One snapshot cannot tell cause from effect. The P5\u2013P95 range is nominal 90%; walk-forward only 83% fell inside it (n = 47) — the other held-out checks are 88% (5-fold, n = 128) and 87% (newest third, n = 31).' })
         ),
         el('div', { class: 'honesty-hist' },
           el('b', { class: 'claim-h', text: 'Launch odds, 198 rows' }),
           el('div', { class: 'hist-body', html: oddsHistSvg() }),
-          el('span', { class: 'sub', text: 'Most rows sit at low odds; the top of the board is the high-odds tail.' })
+          el('span', { class: 'sub', text: 'Most rows sit at low odds; the top of the board is the high-odds tail, not the typical protocol.' })
         )
       )
     );
@@ -356,7 +371,7 @@
     return el('div', { class: 'panel' },
       el('div', { class: 'table-wrap' },
         el('table', null,
-          el('caption', { class: 'sub', text: 'Largest expected value first. Select a row for its model and farm plan.' }),
+          el('caption', { class: 'sub', text: 'Pre-token protocols, largest expected value first. Expected value = fitted value x launch odds. Select a row for its model and farm plan.' }),
           el('thead', null, el('tr', null,
             sortHeader('implied', 'Rank'),
             sortHeader('name', 'Protocol'),
@@ -424,8 +439,14 @@
   function modelPanel() {
     var m = DATA.model;
     var v = DATA.validation;
-    var keptAb = v.ablation.filter(function (a) { return a.kept; })[0];
-    var droppedAb = v.ablation.filter(function (a) { return !a.kept; });
+    var ab = v.ablation.map(function (a) {
+      return el('div', { class: 'ablation-row' },
+        el('span', { class: 'num', text: a.term }),
+        el('span', { class: 'num', text: 'LOO ' + a.loo_median_abs_log_error }),
+        el('span', { class: 'num', text: 'walk-forward ' + a.walkforward_median_abs_log_error }),
+        el('b', { class: a.kept ? 'pass' : 'fail', text: a.kept ? 'KEPT' : 'DROPPED' })
+      );
+    });
     var oddsRows = m.odds_buckets.map(function (b) {
       return el('div', { class: 'ablation-row' },
         el('span', { text: b.lo_days + '–' + (b.hi_days === null ? '∞' : b.hi_days) + ' days' }),
@@ -443,25 +464,14 @@
       el('div', { class: 'formula' },
         'expected = exp(' + m.intercept + ' + ' + m.slope + ' x log(tvl) + ' + m.quad_coef + ' x log(tvl)^2) x launch odds (ridge logistic: age-bucket dummies + log TVL, lambda ' + m.odds_logit.lam + ')'
       ),
-      el('p', { class: 'sub', text: 'Blind tests on the comps: leave-one-out median abs log error ' + v.quad.loo_median_abs_log_error + ' (' + Math.round(v.quad.loo_within_2x * 100) + '% within 2x, ' + Math.round(v.quad.loo_within_3x * 100) + '% within 3x), walk-forward ' + v.quad.walkforward_median_abs_log_error + ' (' + Math.round(v.quad.walkforward_within_2x * 100) + '% within 2x, ' + Math.round(v.quad.walkforward_within_3x * 100) + '% within 3x). The linear curve scores ' + v.size_only.loo_median_abs_log_error + ' leave-one-out and ' + v.size_only.walkforward_median_abs_log_error + ' walk-forward, so the quadratic term scores better on both — but only just: R² moves from 0.1939 to ' + m.r2 + '. On the newest third of dated comps (fit on the older two-thirds, n = ' + v.quad_newer_third.n + ') the quadratic scores ' + v.quad_newer_third.median_abs_log_error + ' vs linear ' + v.size_newer_third.median_abs_log_error + '. A flat median multiple scores ' + v.flat_baseline.median_abs_log_error + ' leave-one-out. R² ' + m.r2 + ' is low: market caps are noisy, and every row carries a P10–P90 range from 200 bootstrap refits plus a wider conformal range (nominal 90%, achieved 83% walk-forward).' }),
-      el('p', { class: 'sub', text: 'Conformal range: fitted x exp(±' + v.conformal.half_width_log + '), the 90th percentile of the leave-one-out residuals, so it is nominally a 90% range (P5–P95) — not an achieved one. Tested four ways, each calibrated on a training set and counted on a held-out set: leave-one-out ' + Math.round(v.conformal.loo_coverage * 100) + '% (n = 128), walk-forward ' + Math.round(v.conformal.walkforward_coverage * 100) + '% (n = ' + v.conformal.n_walkforward + '), 5-fold ' + Math.round(v.conformal.fivefold_coverage * 100) + '% (n = 128), newest third ' + Math.round(v.conformal.newer_third_coverage * 100) + '% (n = ' + v.conformal.n_newer_third + '). The conformal band prices the residual risk per row: the wider model-error range, behind the bootstrap P10–P90 headline, never the headline itself. The farm verdict is netted on the narrower bootstrap P10 instead, stated here so the two ranges are not confused.' }),
+      el('p', { class: 'sub', text: 'Blind tests on the comps: leave-one-out median abs log error ' + v.quad.loo_median_abs_log_error + ' (' + Math.round(v.quad.loo_within_2x * 100) + '% within 2x), walk-forward ' + v.quad.walkforward_median_abs_log_error + ' (' + Math.round(v.quad.walkforward_within_2x * 100) + '% within 2x). The linear curve scores ' + v.size_only.loo_median_abs_log_error + ' leave-one-out and ' + v.size_only.walkforward_median_abs_log_error + ' walk-forward, so the quadratic term scores better on both — but only just: R² moves from 0.1939 to ' + m.r2 + ', and a 5-fold check does not confirm the gain (quadratic ' + v.quad_fivefold.median_abs_log_error + ' vs linear ' + v.size_only_fivefold.median_abs_log_error + '; repeated 5-fold over 5 shuffles agrees, linear 1.2665 vs quadratic 1.2859). On the newest third of dated comps (fit on the older two-thirds, n = ' + v.quad_newer_third.n + ') the quadratic scores ' + v.quad_newer_third.median_abs_log_error + ' vs linear ' + v.size_newer_third.median_abs_log_error + '. A flat median multiple scores ' + v.flat_baseline.median_abs_log_error + ' leave-one-out. R² ' + m.r2 + ' is low: market caps are noisy, and every row carries a P10–P90 range from 200 bootstrap refits plus a wider conformal range (nominal 90%, achieved 83% walk-forward).' }),
+      el('p', { class: 'sub', text: 'Conformal range: fitted x exp(±' + v.conformal.half_width_log + '), the 90th percentile of the leave-one-out residuals, so it is nominally a 90% range (P5–P95) — not an achieved one. Tested four ways, each calibrated on a training set and counted on a held-out set: leave-one-out ' + Math.round(v.conformal.loo_coverage * 100) + '% (n = 128), walk-forward ' + Math.round(v.conformal.walkforward_coverage * 100) + '% (n = ' + v.conformal.n_walkforward + '), 5-fold ' + Math.round(v.conformal.fivefold_coverage * 100) + '% (n = 128), newest third ' + Math.round(v.conformal.newer_third_coverage * 100) + '% (n = ' + v.conformal.n_newer_third + '). Walk-forward is the weakest of the four (' + Math.round(v.conformal.walkforward_coverage * v.conformal.n_walkforward) + ' of ' + v.conformal.n_walkforward + ' newer protocols fell inside) against a nominal 90% — the interval still undercovers newer protocols, and the farm verdict is netted on the narrower bootstrap P10 instead, stated here so the two ranges are not confused.' }),
       el('h3', { text: 'Terms tested — one kept, the rest dropped' }),
-      el('div', { class: 'ablation' },
-        el('div', { class: 'ablation-row' },
-          el('span', { class: 'num', text: keptAb.term }),
-          el('span', { class: 'num', text: 'LOO ' + keptAb.loo_median_abs_log_error }),
-          el('span', { class: 'num', text: 'walk-forward ' + keptAb.walkforward_median_abs_log_error }),
-          el('b', { class: 'pass', text: 'KEPT' })
-        )
-      ),
-      el('p', { class: 'sub', text: 'A term stays only if it beats its baseline curve on BOTH blind tests. ' + droppedAb.length + ' terms dropped: ' + droppedAb.map(function (a) { return a.term; }).join(', ') + '. The full table, with every LOO and walk-forward score, is in the README. Growth, maturity, chain count, the full combination, category intercepts and grouped categories each failed at least one, so they are not in the value — the 7-day growth is still shown on every row. The placebo (seeded noise) also failed both, which is the control that the tests can refuse a term. v6 tested one-per-ticker dedup, survival/hazard odds and empirical-Bayes pooling; v10 tested median (L1) regression and quad+linear ensembles — all failed at least one blind test too; the numbers are in the README exploration table.' }),
+      el('div', { class: 'ablation' }, ab),
+      el('p', { class: 'sub', text: 'A term stays only if it beats its baseline curve on BOTH blind tests. The quadratic term is the only one that does, against the linear curve. Growth, maturity, chain count, the full combination, category intercepts and grouped categories each failed at least one, so they are not in the value — the 7-day growth is still shown on every row. The placebo (seeded noise) also failed both, which is the control that the tests can refuse a term. v6 tested the last untested ideas — one-per-ticker dedup of the comps, survival/hazard odds, empirical-Bayes partial pooling by category — and all failed at least one blind test too; the numbers are in the README exploration table.' }),
       el('h3', { text: 'Launch odds by age' }),
       el('div', { class: 'ablation' }, oddsRows),
-      el('p', { class: 'sub', text: 'Odds are a ridge logistic regression (lambda ' + v.odds.logit_lam + ') on age-bucket dummies and log TVL. Leave-one-out Brier ' + v.odds.brier_loo + ' against the base rate ' + v.odds.base_brier + ', the v2 age/category blend ' + v.odds.v2_brier_loo + ' and the refused v3 variant with growth ' + v.odds.v3_brier_loo + '; log-loss ' + v.odds.logloss_loo + ' against ' + v.odds.base_logloss + ', v2 ' + v.odds.v2_logloss_loo + ' and v3 ' + v.odds.v3_logloss_loo + ' (' + v.odds.n_dated + ' dated protocols; a 5-fold check agrees: Brier ' + v.odds.fivefold_brier + ' vs v2 ' + v.odds.fivefold_v2_brier + ' and v3 ' + v.odds.fivefold_v3_brier + '). Growth was dropped deliberately: the v3 variant scored better but its growth coefficient was negative and it drove most of the board reshuffle, so v4 keeps about two-thirds of its gain with less than half the reshuffle. The table above shows the empirical token rate by age bucket for reference — the logistic model, not the table, sets the odds. Protocols with no listing date use the base rate. Read each odds as a conditional chance given no token so far: among protocols that ran this long with no token on record, this share had one by the snapshot date. Odds are a cohort rate, never a launch date: the snapshot has no launch dates, so this is a cohort rate, not a dated forecast.' }),
-      el('h3', { text: 'Validation — what the model does not claim' }),
-      el('p', { class: 'sub', text: 'Quad vs linear is near a coin flip: 5-fold favours linear (' + v.size_only_fivefold.median_abs_log_error + ' vs ' + v.quad_fivefold.median_abs_log_error + '), and repeated 5-fold agrees (linear 1.2665, quad 1.2859). The quad is kept because it passed the two tests set in advance; the disagreement is stated, not resolved by picking the flattering test.' }),
-      el('p', { class: 'sub', text: 'The odds gain over v2 is small: Brier 0.2092 \u2192 0.2028. TVL is counted twice — in the fitted value and in the odds — and a launch may attract TVL first. One snapshot cannot tell cause from effect.' }),
-      el('p', { class: 'sub', text: 'The P5–P95 range is nominal 90%; walk-forward only 83% fell inside it (' + Math.round(v.conformal.walkforward_coverage * v.conformal.n_walkforward) + ' of ' + v.conformal.n_walkforward + ' newer protocols) — the other held-out checks are 88% (5-fold, n = 128) and 87% (newest third, n = 31).' }),
+      el('p', { class: 'sub', text: 'Odds are a ridge logistic regression (lambda ' + v.odds.logit_lam + ') on age-bucket dummies and log TVL. Leave-one-out Brier ' + v.odds.brier_loo + ' against the base rate ' + v.odds.base_brier + ', the v2 age/category blend ' + v.odds.v2_brier_loo + ' and the refused v3 variant with growth ' + v.odds.v3_brier_loo + '; log-loss ' + v.odds.logloss_loo + ' against ' + v.odds.base_logloss + ', v2 ' + v.odds.v2_logloss_loo + ' and v3 ' + v.odds.v3_logloss_loo + ' (' + v.odds.n_dated + ' dated protocols; a 5-fold check agrees: Brier ' + v.odds.fivefold_brier + ' vs v2 ' + v.odds.fivefold_v2_brier + ' and v3 ' + v.odds.fivefold_v3_brier + '). Growth was dropped deliberately: the v3 variant scored better but its growth coefficient was negative and it drove most of the board reshuffle, so v4 keeps about two-thirds of its gain with less than half the reshuffle. The table above shows the empirical token rate by age bucket for reference — the logistic model, not the table, sets the odds. Protocols with no listing date use the base rate. Odds are a cohort rate, never a launch date: the snapshot has no launch dates.' }),
       el('div', null, residualChart()),
       el('p', { class: 'sub', text: 'Audit: ' + DATA.audit.ranked + ' ranked + ' + DATA.audit.live_token + ' live-token + ' + DATA.audit.excluded + ' excluded = ' + DATA.audit.total + '. Excluded: ' + Object.keys(DATA.audit.excluded_by_reason).map(function (k) { return DATA.audit.excluded_by_reason[k] + ' ' + k; }).join(', ') + '.' })
     );
@@ -557,11 +567,11 @@
         el('div', null, el('span', { text: 'Age with no token' }), el('b', { class: 'num', text: fmtAge(row.age_days) })),
         el('div', null, el('span', { text: 'Fitted value' }), el('b', { class: 'num', text: fmtUsd(row.fitted_value_usd) })),
         el('div', null, el('span', { text: 'Launch odds' }), el('b', { class: 'num', text: Math.round(row.launch_odds * 100) + '%' })),
-        el('div', null, el('span', { text: 'Expected range (bootstrap P10–P90) — headline range' }), el('b', { class: 'num', text: fmtUsd(row.p10_usd) + ' – ' + fmtUsd(row.p90_usd) })),
-        el('div', null, el('span', { text: 'Expected value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) })),
-        el('div', null, el('span', { text: 'Wider range (conformal P5–P95, x30.8; walk-forward 83%, nominal 90%) — model error, not the headline' }), el('b', { class: 'num', text: fmtUsd(row.conf_lo_usd) + ' – ' + fmtUsd(row.conf_hi_usd) }))
+        el('div', null, el('span', { text: 'P10–P90 expected (bootstrap)' }), el('b', { class: 'num', text: fmtUsd(row.p10_usd) + ' – ' + fmtUsd(row.p90_usd) })),
+        el('div', null, el('span', { text: 'P5–P95 expected (conformal; walk-forward coverage 83%, nominal 90%)' }), el('b', { class: 'num', text: fmtUsd(row.conf_lo_usd) + ' – ' + fmtUsd(row.conf_hi_usd) })),
+        el('div', null, el('span', { text: 'Expected value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
       ),
-      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the page recomputes this row as ' + fmtUsd(recomputed) + (recomputed === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price. The headline range is the bootstrap P10–P90; the conformal band is the wider error range, shown behind it.' })
+      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the page recomputes this row as ' + fmtUsd(recomputed) + (recomputed === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' })
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Value equation — this row, literally' }),
@@ -597,7 +607,7 @@
       }))
     ));
     if (typeof dialog.showModal === 'function') {
-      if (!dialog.open) dialog.showModal();
+      if (!dialog.open) state.split ? dialog.show() : dialog.showModal();
     } else {
       dialog.setAttribute('open', '');
     }
@@ -711,42 +721,18 @@
     );
   }
 
-  function lane(n, title, desc, items) {
-    return el('div', { class: 'lane' },
-      el('b', { text: n + ' ' + title }),
-      el('p', { text: desc }),
-      el('details', null, el('summary', { text: 'List the ' + n }), el('p', { text: items.map(function (x) { return x.slug; }).join(', ') }))
-    );
-  }
-  function lanesPanel() {
-    var L = DATA.lanes;
-    if (!L) return null;
-    var lanes = [
-      lane(L.ranked.length, 'ranked — the board', 'Pre-token, rankable, ranked by expected value. Every watchlist protocol is here.', L.ranked),
-      lane(L.live_token.length, 'live-token — set aside', 'Already trade, so the market prices them.', L.live_token)
-    ];
-    Object.keys(L.excluded).forEach(function (k) {
-      lanes.push(lane(L.excluded[k].length, 'excluded — ' + k, 'Pre-token, not rankable.', L.excluded[k]));
-    });
-    return el('section', { class: 'panel lanes', 'aria-label': 'All 758 protocols in lanes' },
-      el('h2', { text: 'All 758 protocols, in lanes' }),
-      el('p', { class: 'sub', text: 'Every protocol in the snapshot sits in exactly one lane. The board above is the ranked lane.' }),
-      el('div', { class: 'lane-grid' }, lanes)
-    );
-  }
-
   function render() {
     app.textContent = '';
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
     shell.appendChild(lede());
-    shell.appendChild(claimPanel());
+    shell.appendChild(honestyPanel());
     shell.appendChild(checksStrip());
     shell.appendChild(controls());
     shell.appendChild(state.tab === 'pre-token' ? boardTable() : liveTable());
     var chart = curveChart();
     if (chart) shell.appendChild(chart);
-    if (state.tab === 'pre-token') { shell.appendChild(modelPanel()); shell.appendChild(toolsPanel()); var lp = lanesPanel(); if (lp) shell.appendChild(lp); }
+    if (state.tab === 'pre-token') { shell.appendChild(modelPanel()); shell.appendChild(toolsPanel()); }
     app.appendChild(shell);
     app.setAttribute('aria-busy', 'false');
     if (!dialog.isConnected) app.appendChild(dialog);
