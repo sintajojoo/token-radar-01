@@ -1,5 +1,9 @@
 # Token Radar — radar-9, v12 (v9 + two-surface cover; model unchanged)
 
+[![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![rank](https://make.fun/badge/token-radar-01/sintajojoo/token-radar-01/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![reward](https://make.fun/badge/token-radar-01/sintajojoo/token-radar-01/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+
 **v12 is v9 with exactly one change:** the cover screenshot now shows TWO
 surfaces in one frame — the board and a protocol's detail view side by side
 (the Clearboard lesson from the 26 Nov champions research: the frontend
