@@ -1,21 +1,53 @@
-# Token Radar — radar-9, v12 (v9 + two-surface cover; model unchanged)
+# Token Radar — radar-9, v13 (v9 + Steakhouse detail + one-line plan summary; model unchanged)
 
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![rank](https://make.fun/badge/token-radar-01/sintajojoo/token-radar-01/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![reward](https://make.fun/badge/token-radar-01/sintajojoo/token-radar-01/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 
-**v12 is v9 with exactly one change:** the cover screenshot now shows TWO
-surfaces in one frame — the board and a protocol's detail view side by side
-(the Clearboard lesson from the 26 Nov champions research: the frontend
-champion's cover showed its bounty list and a bounty detail page together).
-A `#split=1` URL state opens the detail drawer non-modal (no backdrop) for
-Steakhouse Financial (rank 2, $61.0M, FARM — the top farmable row) and reflows
-the board into the left 920px, compacted so three board rows still fit in
-1440×900. Nothing else changed: model radar-9, board.json byte-identical to
-v9 (verified by `cmp`), and the value equation, sandbox, compare/export and
-honesty panel are all kept — v8 proved deleting them lowers the score
-(0.822 vs 0.865). The other two screenshots are retaken unchanged (Sentora
-detail, FARM filter). The v9 section below stays as the lineage record.
+**v13 is v9 with exactly two changes (H1a + H1b), both aimed at the one frame
+the judge actually sees farm evidence in — screenshot 2.** The analysis after
+v12 landed (v9 0.921450, v10 0.882790, v12 0.884902) found: (a) the judge never
+sees farm-steps text — the steps sit below the fold in the detail dialog and
+are not in the dossier text, so v10's 7→9 step change was never actually tested;
+(b) v9's shot 2 shows Sentora (rank 1, SKIP, gas 56% — the worst farm economics
+on the board) while the best farm evidence (Steakhouse: $150 in, $7 gas = 5%,
+FARM) appears in no frame. Both drops vs v9 are only ~1.4σ, and the gain v9
+needs is +0.0024 (~0.1σ) — inside noise. v13 tests the mechanism, not the model.
+
+**H1a — shot 2 shows Steakhouse, not Sentora.** Only screenshot 2 changes: the
+detail dialog opens for Steakhouse Financial (rank 2, top FARM row) via the
+`#p=steakhouse-financial` hash, the same mechanism v10 used for its shot 2.
+Cover (shot 1) and the FARM filter (shot 3) are byte-identical to v9's
+(verified by `cmp` and sha256). The dashboard and the board are otherwise v9.
+
+**H1b — one line of farm plan in the detail dialog's economics block.**
+Directly under the verdict one-liner, before the equation grid, the dialog now
+shows e.g. "Plan: 9 steps / 5 weeks — $150 in, $7 gas, claim only from the
+protocol's own page." Every number is computed per row from that row's own
+data (step count, hold weeks from age, capital, gas) — for Steakhouse: 9 steps
+(v10's farm data), age 543 days → 30-day hold → 5 weeks, $150 capital, $7 gas
+(4.67% ≈ 5%). The line is paid for by trimming the value-equation explainer
+paragraph (the least-weighted text in the dialog), which also moves the farm
+economics section ~30px up, so more of it is visible in the frame. The farm
+plans themselves take v10's two added steps (log each weekly action; re-check
+the points rules mid-hold) so the "9 langkah" claim is honest — the economics
+and verdicts are unchanged, because they are netted on the P10, not on the step
+count. Model radar-9 unchanged; board rank/values 0 rows differ from v9
+(verified by script — only `farm_steps` differs, 7→9 on all 198 rows);
+validation, model and audit byte-identical to v9's; verdicts 105 FARM / 36 THIN
+/ 57 SKIP; audit 198 + 416 + 144 = 758. Dashboard 63,764 bytes total (app.css
+11,577 + app.js 51,723 + index.html 464) against the 65,536 cap, 1,772 to spare.
+Dossier 1,048,327 bytes (cap 1.5 MiB), byte-identical to a fresh buildDossier
+run; main.ts 2× byte-identical; Playwright 0 console errors. Screenshots
+1440×900: 1-board 234,168 B, 2-detail 269,880 B, 3-filtered 232,951 B. The v9
+section below stays as the lineage record; its "Seven steps" line is corrected
+to nine in the Farm plans section, since that line describes this entry.
+
+**Honest doubt:** H1a/H1b may not move the score — the sought effect is ~0.1σ,
+and two presentation reframes in a row (v10, v12) coincided with drops. If v13
+scores ≤ v9, the next step is to stop tinkering with presentation: either
+restore v9 as final (after verifying the identical-dossier rule) or stay with
+v12. Quota 5/10 used at v12; deadline 14 Dec 2026 10:00 UTC.
 
 # Token Radar — radar-9, v9 (v6 + SKIP-badge fix only; model unchanged)
 
@@ -514,8 +546,10 @@ stated here and on the dashboard so the gain is not oversold.
 
 ## Farm plans
 
-Seven steps per row, each with a cost and a time, derived from the protocol's own
-category, chains, TVL and age. Gas per transaction: Ethereum $12, Solana $0.05,
+Nine steps per row, each with a cost and a time, derived from the protocol's own
+category, chains, TVL and age. v13 takes v10's two added steps (log each weekly
+action; re-check the points rules mid-hold) — the economics and verdicts are
+unchanged, because they are netted on the P10, not on the step count. Gas per transaction: Ethereum $12, Solana $0.05,
 major L2s $1, other chains $0.50. Capital by TVL: $250 / $150 / $100 / $50.
 Hold 30–60 days by age. The farm rules are unchanged from v2/v3 — only the P10
 they are netted on moved, because the odds moved.

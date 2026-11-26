@@ -1,6 +1,12 @@
-// Token radar, model radar-9 (entry v12; model unchanged from v4/v5 —
-// v12 adds a #split=1 two-surface cover state to the dashboard only:
-// board + detail side by side. See README.md.)
+// Token radar, model radar-9 (entry v13; model unchanged from v4/v5/v6/v9).
+//
+// v13 is v9 plus two small changes only (see README): the farm plans take
+// v10's two added steps (9 steps per row; the economics and verdicts are
+// unchanged, because they are netted on the P10, not on the step count), and
+// the detail view shows a one-line plan summary in the farm economics block.
+// The fitted model, the odds, the audit, the ranks and the implied values
+// are byte-identical to v9's; only the farm_steps text changes (7 -> 9 steps).
+// The cover screenshot is byte-identical to v9's.
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), fits the
 // size curve and launch odds on the snapshot itself (lib/model.ts), writes the ranked board to

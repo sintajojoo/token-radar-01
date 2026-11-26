@@ -182,28 +182,3 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 16
 .ablation { display: grid; gap: var(--step-2); margin-top: var(--step-2); }
 .ablation-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: var(--step-3); align-items: baseline; padding: var(--step-2) 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .model h3 { margin-top: var(--step-4); }
-
-/* v12: two-surface cover — board + detail side by side in one frame (Clearboard
-   lesson). The detail drawer sits in the right 520px; the board reflows left
-   so no column hides behind it. Only active with #split=1 in the URL. The
-   left column is compacted so three board rows still fit in 900px. */
-.split .shell { margin: 0 520px 0 0; max-width: none; padding: 2px 20px 48px; }
-.split .bar { width: 80px; }
-.split th, .split td { padding: 5px 8px; }
-.split .lede { padding: 4px 0; }
-.split .lede h1 { font-size: 20px; }
-.split .lede p { font-size: 13px; line-height: 1.4; }
-.split .facts { grid-template-columns: 1fr 1fr; gap: 8px 16px; }
-.split .fact { flex-wrap: wrap; gap: 0 8px; }
-.split .fact span { font-size: 12px; }
-.split .fact b { font-size: 13px; }
-.split .honesty { margin-top: 4px; padding: 6px 16px; gap: 4px; }
-.split .honesty-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 150px; }
-.split .honesty-col p { font-size: 11px; line-height: 1.35; }
-.split .strip { padding: 2px 0; gap: 8px; }
-.split .check { padding: 4px 6px; }
-.split .check .sub { font-size: 10px; line-height: 1.3; }
-.split .controls { padding: 0; gap: 8px; }
-.split .field select { min-width: 100px; }
-.split .field input { min-width: 140px; }
-.split .name .sub { font-size: 11px; }

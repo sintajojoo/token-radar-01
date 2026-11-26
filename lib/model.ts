@@ -1,5 +1,12 @@
 // Token radar, model radar-9: one snapshot of the protocol universe in, one ranked board out.
 //
+// v13 is v9 plus two small changes only (see README): the farm plans take
+// v10's two added steps (9 steps per row; the economics and verdicts are
+// unchanged, because they are netted on the P10, not on the step count), and
+// the detail view shows a one-line plan summary in the farm economics block.
+// The fitted model, the odds, the audit, the ranks and the implied values
+// are byte-identical to v9's; only the farm_steps text changes (7 -> 9 steps).
+//
 // The board covers every slug in the snapshot's watchlist (the floor, never a ceiling) and adds
 // every other rankable pre-token protocol: pre-token, not an exchange, not a versioned pool, and
 // not a wrapped, staked or bridged product of a token that already trades. A protocol is
@@ -1262,9 +1269,11 @@ export function farmEconomics(p: SnapshotProtocol, age: number | null, p10Expect
 }
 
 /**
- * A protocol's farm plan: seven steps, each an action with a cost and a time. The plan is derived
+ * A protocol's farm plan: nine steps, each an action with a cost and a time. The plan is derived
  * from the protocol's own record (category, chains, TVL, age), never from a hand-written list of names.
- * The last step states the verdict, netted on the P10 expected value.
+ * The last step states the verdict, netted on the P10 expected value. v13 takes v10's two added steps
+ * (log each weekly action; re-check the points rules mid-hold) — the economics and verdicts are
+ * unchanged, because they are netted on the P10, not on the step count.
  */
 export function farmSteps(p: SnapshotProtocol, age: number | null, econ: FarmEconomics, p10Expected: number): FarmStep[] {
   const chain = chainOf(p);
@@ -1277,8 +1286,10 @@ export function farmSteps(p: SnapshotProtocol, age: number | null, econ: FarmEco
     { text: `Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.`, cost: 'under $3 of gas for the first transaction', time: '5 minutes' },
     { text: actionFor(p, capital, chain), cost: `$${capital} of capital and about ${gasStr} of gas`, time: '15 minutes to set up' },
     { text: `Make one qualifying action each week for ${weeks} weeks, such as a deposit, a borrow, a swap or a vote.`, cost: `about ${gasStr} of gas a week`, time: '10 minutes a week' },
+    { text: `After each weekly action, save the transaction hash, the date and the amount in your farm log, and check the position still shows on the protocol's own page.`, cost: 'nothing but the log', time: '5 minutes a week' },
     { text: `Hold the position for at least ${hold} days so the activity is counted in more than one snapshot.`, cost: `the $${capital} stays in the position`, time: `${hold} days` },
     { text: secondActionFor(p, capital, chain), cost: `about ${gasStr} of gas`, time: '15 minutes' },
+    { text: `Halfway through the hold, open the protocol's docs and check whether the points rules, the eligible chains or the minimums changed since you started.`, cost: 'no fee to check', time: '10 minutes' },
     { text: `Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes.`, cost: 'no fee to check, and never pay to claim', time: '10 minutes' },
     {
       text: `Verdict: ${econ.verdict}. Breakeven is $${econ.gas_total_usd} of gas, ${econ.breakeven_bps} bps of the P10 expected value of $${Math.round(p10Expected).toLocaleString('en-US')} and ${Math.round((econ.gas_total_usd / econ.capital_usd) * 100)}% of the $${econ.capital_usd} capital; capture breakeven is ${econ.capture_breakeven_pct}% of the P10. $/hour over ${econ.hours} hours, labelled assumptions: $${econ.usd_per_hour} at 0.001% capture, $${econ.usd_per_hour_01pct} at 0.01%, $${econ.usd_per_hour_10pct} at 0.1%. ${econ.verdict === 'FARM' ? 'The capital is already enough for FARM.' : econ.capital_flip_usd === null ? 'No capital flips this verdict; the breakeven, not the gas drag, is the blocker.' : `Raising capital to $${econ.capital_flip_usd} would flip it to FARM.`} Write the wallet, dates and every transaction in a farm log.`,

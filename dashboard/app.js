@@ -114,13 +114,6 @@
     if (params.get('chain')) state.chain = params.get('chain');
     if (params.get('verdict')) state.verdict = params.get('verdict');
     if (params.get('watchlist') === '1') state.watchlist = true;
-    // v12: split cover — board + detail side by side in one frame (Clearboard
-    // lesson). The detail opens non-modal, no backdrop, beside the board.
-    if (params.get('split') === '1') {
-      state.split = true;
-      document.body.classList.add('split');
-      if (!state.selected) state.selected = 'steakhouse-financial';
-    }
   }
   function writeHash() {
     var params = new URLSearchParams();
@@ -543,6 +536,14 @@
     var impliedLine = 'implied = fitted x odds = ' + fmtUsd(row.fitted_value_usd) + ' x ' + (Math.round(row.launch_odds * 1000) / 10) + '% = ' + fmtUsd(row.implied_value_usd);
     return [fittedLine, oddsLine, impliedLine];
   }
+  /** One line of this row's farm plan, from its own numbers: how many steps,
+      over how many weeks, for how much capital and gas — and that a claim
+      comes only from the protocol's own page. The weeks repeat the hold in
+      farmSteps (30/45/60 days by age, so 5/7/9 weeks). */
+  function planSummary(row) {
+    var hold = row.age_days === null || row.age_days === undefined ? 30 : row.age_days < 180 ? 60 : row.age_days < 365 ? 45 : 30;
+    return row.farm_steps.length + ' steps / ' + Math.ceil(hold / 7) + ' weeks \u2014 $' + row.capital_usd + ' in, $' + row.gas_total_usd + ' gas, claim only from the protocol\u2019s own page.';
+  }
 
   function openDetail(slug) {
     var row = DATA.rows.filter(function (r) { return r.slug === slug; })[0];
@@ -576,11 +577,12 @@
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Value equation — this row, literally' }),
       el('div', { class: 'formula' }, valueEquation(row).join('\n') ),
-      el('p', { class: 'sub', text: 'ln(TVL) is the natural log of this row\u2019s TVL. The bucket term is the age bucket this row falls in (' + bucketLabel(row) + '); undated rows use the base rate instead of a bucket. Every number above comes from this row and the model in board.json — substitute them and you get the same expected value.' })
+      el('p', { class: 'sub', text: 'ln(TVL) is the natural log of this row\u2019s TVL; the bucket term is its age bucket (' + bucketLabel(row) + '). Every number above comes from this row and the model in board.json.' })
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Farm economics — netted on the P10' }),
       el('p', { class: 'sub', text: verdictOneLiner(row) }),
+      el('p', { class: 'sub' }, el('b', { text: 'Plan: ' }), planSummary(row)),
       el('div', { class: 'equation' },
         el('div', null, el('span', { text: 'Verdict' }), el('b', { class: 'num', text: row.verdict })),
         el('div', null, el('span', { text: 'Capital' }), el('b', { class: 'num', text: '$' + row.capital_usd })),
@@ -607,7 +609,7 @@
       }))
     ));
     if (typeof dialog.showModal === 'function') {
-      if (!dialog.open) state.split ? dialog.show() : dialog.showModal();
+      if (!dialog.open) dialog.showModal();
     } else {
       dialog.setAttribute('open', '');
     }
