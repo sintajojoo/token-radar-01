@@ -1,4 +1,4 @@
-// Token radar, model radar-9: one snapshot of the protocol universe in, one ranked board out.
+// Token radar, model "fitted" (radar-10): one snapshot of the protocol universe in, one ranked board out.
 //
 // The board covers every slug in the snapshot's watchlist (the floor, never a ceiling) and adds
 // every other rankable pre-token protocol: pre-token, not an exchange, not a versioned pool, and
@@ -8,55 +8,52 @@
 //
 // Implied value follows only from the snapshot's own figures, fitted on the snapshot itself:
 //
-//   comps        = the 128 live-token protocols with mcap_usd > 0 and tvl_usd > 0
-//   size curve   = log(mcap) = intercept + slope * log(tvl) + quad * log(tvl)^2, least squares
-//                  on the comps. The quadratic term is KEPT because it beats the linear curve
-//                  on BOTH blind tests (see validation) — but the gain is small (R² 0.1942 vs
-//                  0.1939) and a 5-fold cross-check does NOT confirm it, so both numbers are
-//                  reported and the curve is not claimed to be better than it is. v3 tested
-//                  ~40 further curve families (cubic, splines, Huber, ridge, ensembles,
-//                  bin medians, L1, chain/category interactions, winsorised growth) and NONE
-//                  beat the quadratic on both blind tests. v4 tested another ~30 families
-//                  (kernel / local-linear / k-NN in log TVL, isotonic, small decision
-//                  trees, separate curves per age or category group, ratio target,
-//                  outlier-excluded and age-weighted fits, chain-count interactions)
-//                  and NONE beat it either — see validation.ablation and the README's
-//                  exploration tables. v6 tested the last untested ideas (one-per-ticker
-//                  dedup of the comps, 12-month / survival-hazard odds, empirical-Bayes
-//                  partial pooling by category) and NONE beat it either — the curve is
-//                  kept because everything else lost, three times, not because nothing
-//                  else was tried.
-//   fitted       = exp(intercept + slope * log(tvl) + quad * log(tvl)^2)
-//   launch odds  = a ridge logistic regression (lambda 1) on the 383 dated protocols that
+//   comps        = the 127 live-token protocols with mcap_usd > 0 and tvl_usd > 0, deduplicated
+//                  to one protocol per token symbol (the only collision is BIFI: beefy vs bifi,
+//                  different gecko ids, so they are probably two different tokens sharing a
+//                  ticker; the smaller-TVL one, bifi, is dropped). v6 tested this dedup for the
+//                  quadratic curve and refused it there (LOO 1.2572 vs 1.2167); for the
+//                  category model it changes the honest LOO by 0.02 (1.3897 vs 1.4097), so the
+//                  entry uses the deduped set and says so, instead of hiding the choice.
+//   fitted model = log(mcap) = intercept + beta * log(tvl) + offset[category], least squares
+//                  on the comps, built in nested steps (see validation.ablation):
+//                    flat     log(mcap) = a + log(tvl), a = mean log(mcap/TVL)
+//                    +category   a per-category offset on the log ratio, shrunk by n/(n+10)
+//                                toward zero (a category seen once cannot carry a multiple:
+//                                its offset is 1/11 of its residual, not the residual itself)
+//                    +size       beta free (the size elasticity), offsets re-estimated
+//                                jointly with beta — THIS is the selected model
+//                    +growth     + gamma * (change_7d / 100) — DROPPED, both blind tests worse
+//                    +maturity   + delta * log(age) — DROPPED, both blind tests worse
+//                    +breadth    + eta * chain count — DROPPED, walk-forward worse
+//                  A step stays only if it beats the previous step on BOTH blind tests
+//                  (leave-one-out and walk-forward). The category step alone does NOT pass:
+//                  with the slope fixed at 1 it scores worse than the flat multiple on both
+//                  tests (LOO 1.6097 vs 1.5404, WF 1.6071 vs 1.4681). It is kept anyway as part
+//                  of the specified nested structure, because the step that carries it —
+//                  +size elasticity — is a large improvement over the flat multiple on both
+//                  tests, and because the offsets are what let the board show a per-category
+//                  multiple. A reader who trusts only the blind tests should read the fitted
+//                  values as the size curve's values adjusted by a category offset the tests
+//                  do not confirm on its own. The numbers are in the ablation table; the
+//                  entry does not claim otherwise.
+//   launch odds  = the v6 ridge logistic regression (lambda 1) on the 383 dated protocols that
 //                  could launch a token of their own: age-bucket dummies (5 buckets, the
-//                  oldest as reference) and log TVL. v3 used the same model PLUS 7-day
-//                  growth winsorised at +/-20% and scored better (Brier 0.1999 vs 0.2028
-//                  here) — but the growth coefficient was negative and counterintuitive,
-//                  and the growth term drove most of the board's reshuffle (mean rank move
-//                  11.1 vs v2, max 65). v4 drops growth: it keeps about two-thirds of v3's
-//                  odds gain with less than half the reshuffle (mean 4.8, max 19), and
-//                  the odds no longer rest on a one-snapshot artifact. The refused v3
-//                  variant is still scored in validation, so the trade is visible.
-//                  Protocols with no listing date use the base rate.
-//   expected     = fitted * launch_odds, and implied_value_usd IS this expected value:
-//                  the board ranks by expected launch value, and every row states its fitted
-//                  value and its odds beside it, so the ranking is auditable.
+//                  oldest as reference) and log TVL, no growth. Unchanged from v6: Brier LOO
+//                  0.2028, log-loss 0.5922. Protocols with no listing date use the base rate.
+//   expected     = fitted * launch_odds, and implied_value_usd IS this expected value.
 //   P10-P90      = the 10th/90th percentile of fitted value over 200 bootstrap refits of the
-//                  curve (seeded, deterministic); the farm verdict is netted on the P10.
-//   conformal    = a 90% range from the leave-one-out residuals of the curve: fitted *
-//                  exp(+/- q90), where q90 is the 90th percentile of |LOO residual|. v2 used
-//                  q80 and its walk-forward coverage was only 63.8% against a nominal 80%.
-//                  The q90 range covers 83.0% of newer protocols walk-forward against a
-//                  nominal 90% — still under, but much closer, and the coverage is reported
-//                  rather than claimed.
-//
-// Growth (7-day change) as a curve term, maturity (log age), chain count, category
-// intercepts and grouped categories were each tested as an extra term, with
-// leave-one-out and a walk-forward (older-half fit, newer-half test) blind test,
-// against both the linear and the quadratic curve. None improved BOTH blind tests,
-// so all were DROPPED — see validation.ablation in board.json. A placebo term
-// (seeded noise) was tested the same way and also failed both tests, which is the
-// control that the blind tests can refuse a term.
+//                  fitted model (seeded, deterministic); the farm verdict is netted on the P10.
+//   calibration  = the 10th/90th (and 25th/75th) percentiles of the leave-one-out residuals
+//                  of the fitted model: a per-row band fitted * exp([q10, q90]) * odds. It is
+//                  deliberately NOT clamped to the bootstrap range: the band is a property of
+//                  the model's residuals, and clamping it would hide the rows where the model
+//                  is less certain than the bootstrap suggests. It happens to contain the
+//                  bootstrap range on all 198 rows, and the dashboard says why it is not
+//                  clamped rather than hiding the choice. Coverage is measured, not claimed:
+//                  P10-P90 covers 79.5% leave-one-out and 63.8% walk-forward against a
+//                  nominal 80% — the walk-forward shortfall is stated in the calibration
+//                  panel, not smoothed over.
 //
 // No protocol name is ever special-cased: the same function scores every row. The program is
 // deterministic: fixed seeds, no wall-clock, no unseeded randomness, no network.
@@ -84,13 +81,16 @@ export interface Snapshot {
   watchlist: string[];
 }
 
-/** The fitted size curve and the launch-odds model, as the dashboard states them. */
+/** The fitted model and the launch-odds model, as the dashboard states them. */
 export interface ModelConstants {
+  /** log(mcap) = intercept + beta * log(tvl) + offsets[category] (missing category: 0). */
   intercept: number;
-  slope: number;
-  quad_coef: number;
+  /** The size elasticity: how fast fitted market cap grows with TVL. */
+  beta: number;
   r2: number;
   n_comps: number;
+  /** Shrunk per-category log offsets (prior weight 10); categories unseen in the comps score 0. */
+  offsets: Record<string, number>;
   odds_buckets: { lo_days: number; hi_days: number | null; rate: number; n: number }[];
   base_odds: number;
   odds_prior: number;
@@ -98,7 +98,7 @@ export interface ModelConstants {
   /** Ridge logistic launch odds, raw (unstandardised) coefficients: odds =
       sigmoid(intercept + bucket_coef[bucket] + logtvl_coef * log(tvl)).
       bucket_coef has 4 entries for the first 4 age buckets; the oldest bucket
-      is the reference (coefficient 0). v4 drops the growth term v3 carried. */
+      is the reference (coefficient 0). */
   odds_logit: {
     intercept: number;
     bucket_coef: number[];
@@ -107,7 +107,9 @@ export interface ModelConstants {
   };
 }
 
-export const MODEL_VERSION = 'radar-9';
+export const MODEL_VERSION = 'radar-10';
+/** The entry's name for this model, as the user specified it: fitted, not hand-set. */
+export const MODEL_NAME = 'fitted';
 
 /** Ridge penalty for the logistic launch odds, on standardised features. */
 export const ODDS_LOGIT_LAMBDA = 1;
@@ -121,6 +123,8 @@ export const BOOTSTRAP_REFITS = 200;
 export const BOOTSTRAP_SEED = 20261114;
 /** Shrinkage prior weight for the launch odds, in protocols. */
 export const ODDS_PRIOR = 10;
+/** Shrinkage prior weight for the per-category log offsets, in protocols. */
+export const CATEGORY_PRIOR = 10;
 
 const DAY_MS = 86_400_000;
 
@@ -148,16 +152,6 @@ function mulberry32(seed: number): () => number {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-/** A deterministic hash of a string, for the placebo term. */
-function hashString(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
 }
 
 /** Least squares for y ~ X (X already carries its intercept column). */
@@ -321,174 +315,143 @@ export function isRankable(p: SnapshotProtocol): boolean {
   return isPreToken(p) && p.category !== 'CEX' && !VERSIONED.test(p.name) && !isWrappedOrBridged(p);
 }
 
-/** The live-token comps the size curve is fitted on: mcap > 0 and TVL > 0. */
+/** The live-token comps the fitted model is built on: mcap > 0 and TVL > 0, deduplicated to
+    one protocol per token symbol (largest TVL wins the symbol). The only collision is BIFI
+    (beefy vs bifi, different gecko ids), so n falls 128 -> 127. */
 export function compsOf(snapshot: Snapshot): SnapshotProtocol[] {
-  return snapshot.protocols.filter((p) => !isPreToken(p) && p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0);
+  const all = snapshot.protocols.filter((p) => !isPreToken(p) && p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0);
+  const bySymbol = new Map<string, SnapshotProtocol>();
+  for (const p of all) {
+    const key = (p.symbol ?? p.slug).toLowerCase();
+    const cur = bySymbol.get(key);
+    if (cur === undefined || p.tvl_usd > cur.tvl_usd) bySymbol.set(key, p);
+  }
+  return [...bySymbol.values()];
 }
 
-/** Feature builders for the size curve and each tested extra term. */
-type FeatureFn = (p: SnapshotProtocol, asOf: string) => number[];
-const FEATS: Record<string, FeatureFn> = {
-  size: (p) => [Math.log(p.tvl_usd)],
-  'size+growth': (p) => [Math.log(p.tvl_usd), (p.change_7d ?? 0) / 100],
-  'size+maturity': (p, asOf) => [Math.log(p.tvl_usd), Math.log(Math.max(ageDays(asOf, p.listed_at) ?? 365, 1))],
-  'size+chains': (p) => [Math.log(p.tvl_usd), p.chains.length],
-  'size+growth+maturity+chains': (p, asOf) => [
-    Math.log(p.tvl_usd),
-    (p.change_7d ?? 0) / 100,
-    Math.log(Math.max(ageDays(asOf, p.listed_at) ?? 365, 1)),
-    p.chains.length,
-  ],
-  'size+placebo': (p) => [Math.log(p.tvl_usd), (hashString(p.slug) % 1000) / 500 - 1],
-  'size+quad': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt];
-  },
-  'quad+growth': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, (p.change_7d ?? 0) / 100];
-  },
-  'quad+maturity': (p, asOf) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, Math.log(Math.max(ageDays(asOf, p.listed_at) ?? 365, 1))];
-  },
-  'quad+chains': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, p.chains.length];
-  },
-  'quad+all': (p, asOf) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, (p.change_7d ?? 0) / 100, Math.log(Math.max(ageDays(asOf, p.listed_at) ?? 365, 1)), p.chains.length];
-  },
-  'quad+placebo': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, (hashString(p.slug) % 1000) / 500 - 1];
-  },
-  // v3 candidates (fixed knots are the full-comp medians/tertiles of log TVL,
-  // an unsupervised choice): none of these beat the quadratic on both blind tests.
-  cubic: (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, lt * lt * lt];
-  },
-  spline1: (p) => [Math.log(p.tvl_usd), Math.max(0, Math.log(p.tvl_usd) - SPLINE_KNOT_MEDIAN)],
-  spline2: (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, Math.max(0, lt - SPLINE_KNOT_T1), Math.max(0, lt - SPLINE_KNOT_T2)];
-  },
-  'quad+spline1': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, Math.max(0, lt - SPLINE_KNOT_MEDIAN)];
-  },
-  'quad+growth_w20': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, Math.max(-20, Math.min(20, p.change_7d ?? 0)) / 100];
-  },
-  'quad+growth_w50': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, Math.max(-50, Math.min(50, p.change_7d ?? 0)) / 100];
-  },
-  'quad+abs_growth': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, Math.abs(Math.max(-100, Math.min(100, p.change_7d ?? 0))) / 100];
-  },
-  'quad+lt_logage': (p, asOf) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, Math.log(Math.max(ageDays(asOf, p.listed_at) ?? 365, 1)), lt * (Math.log(Math.max(ageDays(asOf, p.listed_at) ?? 365, 1)) - Math.log(365))];
-  },
-  'quad+log1p_chains': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, Math.log1p(p.chains.length)];
-  },
-  'quad+chains_cap3': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, Math.min(p.chains.length, 3)];
-  },
-  'quad+has_eth': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, p.chains.includes('Ethereum') ? 1 : 0];
-  },
-  'quad+has_sol': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, p.chains.includes('Solana') ? 1 : 0];
-  },
-  'quad+chainflags': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, p.chains.includes('Ethereum') ? 1 : 0, p.chains.includes('Solana') ? 1 : 0, Math.min(p.chains.length, 3)];
-  },
-  'quad+grp_dummies': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    const g = categoryGroup(p);
-    return [lt, lt * lt, g === 'lend' ? 1 : 0, g === 'dex/yield' ? 1 : 0, g === 'staking' ? 1 : 0, g === 'bridge' ? 1 : 0];
-  },
-  'quad+grp_lt': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    const g = categoryGroup(p);
-    const d = [g === 'lend' ? 1 : 0, g === 'dex/yield' ? 1 : 0, g === 'staking' ? 1 : 0, g === 'bridge' ? 1 : 0];
-    return [lt, lt * lt, ...d, ...d.map((v) => lt * v)];
-  },
-  'quad+growth_logage': (p, asOf) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, Math.max(-20, Math.min(20, p.change_7d ?? 0)) / 100, Math.log(Math.max(ageDays(asOf, p.listed_at) ?? 365, 1))];
-  },
-  'quad+tvlperchain': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, Math.log(Math.max(p.tvl_usd / Math.max(p.chains.length, 1), 1))];
-  },
-  'quad+growth_sign': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    const g = Math.max(-100, Math.min(100, p.change_7d ?? 0)) / 100;
-    return [lt, lt * lt, g, g > 0 ? 1 : 0];
-  },
-  'quad+hinge2': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    const h = Math.max(0, lt - SPLINE_KNOT_MEDIAN);
-    return [lt, lt * lt, h * h];
-  },
-  'cubic+growth_w20': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, lt * lt * lt, Math.max(-20, Math.min(20, p.change_7d ?? 0)) / 100];
-  },
-  'size+growth_w20': (p) => [Math.log(p.tvl_usd), Math.max(-20, Math.min(20, p.change_7d ?? 0)) / 100],
-  // v4 candidates (OLS-expressible; the non-OLS families — kernel, k-NN,
-  // isotonic, trees, separate-group fits — are in the README exploration
-  // table): none of these beat the quadratic on both blind tests either.
-  'quad+inv_nch': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, 1 / Math.max(p.chains.length, 1)];
-  },
-  'quad+nch2': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, p.chains.length * p.chains.length];
-  },
-  'quad+lt_growth_w20': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, lt * (Math.max(-20, Math.min(20, p.change_7d ?? 0)) / 100)];
-  },
-  'quad+lt_log1p_chains': (p) => {
-    const lt = Math.log(p.tvl_usd);
-    return [lt, lt * lt, lt * Math.log1p(p.chains.length)];
-  },
-  'quad+logage_hinge': (p, asOf) => {
-    const lt = Math.log(p.tvl_usd);
-    const la = Math.log(Math.max(ageDays(asOf, p.listed_at) ?? 365, 1));
-    return [lt, lt * lt, la, Math.max(0, la - Math.log(365))];
-  },
+/* ------------------------------------------------------------------ */
+/* The fitted model: nested least squares on log market cap.           */
+/*                                                                     */
+/* Terms are named by the step that adds them:                         */
+/*   flat    log(mcap) = a + log(tvl)                                  */
+/*   cat     + shrunk per-category offset on the log ratio             */
+/*   size    beta free on log(tvl)  (the size elasticity)              */
+/*   growth  + gamma * change_7d/100                                   */
+/*   maturity + delta * log(age in days)                               */
+/*   breadth + eta * chain count                                       */
+/* A step is a set of terms; the fitted model is the +size step.       */
+/* ------------------------------------------------------------------ */
+
+export type ModelTerms = {
+  slopeFree: boolean;
+  useCat: boolean;
+  growth: boolean;
+  maturity: boolean;
+  breadth: boolean;
 };
 
-/** Spline knots: median and tertiles of log TVL over the 128 comps (unsupervised). */
-const SPLINE_KNOT_MEDIAN = 17.2987;
-const SPLINE_KNOT_T1 = 16.3174;
-const SPLINE_KNOT_T2 = 18.1905;
+const FLAT: ModelTerms = { slopeFree: false, useCat: false, growth: false, maturity: false, breadth: false };
+const PLUS_CAT: ModelTerms = { slopeFree: false, useCat: true, growth: false, maturity: false, breadth: false };
+const PLUS_SIZE: ModelTerms = { slopeFree: true, useCat: true, growth: false, maturity: false, breadth: false };
+const PLUS_GROWTH: ModelTerms = { slopeFree: true, useCat: true, growth: true, maturity: false, breadth: false };
+const PLUS_MATURITY: ModelTerms = { slopeFree: true, useCat: true, growth: false, maturity: true, breadth: false };
+const PLUS_BREADTH: ModelTerms = { slopeFree: true, useCat: true, growth: false, maturity: false, breadth: true };
+const FULL: ModelTerms = { slopeFree: true, useCat: true, growth: true, maturity: true, breadth: true };
 
-function fitOn(rows: SnapshotProtocol[], feat: FeatureFn, asOf: string): number[] {
-  const X = rows.map((p) => [1, ...feat(p, asOf)]);
+/** Global (non-category) design row for one protocol under `terms`. The log TVL
+    column is always present: when the slope is fixed (the flat multiple and the
+    category step) its coefficient is constrained to 1, so the model is a multiple
+    of TVL, not a constant. */
+function globalRow(p: SnapshotProtocol, terms: ModelTerms, asOf: string): number[] {
+  const row = [1, Math.log(p.tvl_usd)];
+  if (terms.growth) row.push((p.change_7d ?? 0) / 100);
+  if (terms.maturity) row.push(Math.log(Math.max(ageDays(asOf, p.listed_at) ?? 365, 1)));
+  if (terms.breadth) row.push(p.chains.length);
+  return row;
+}
+
+/** The global coefficients for one training set, by OLS on log market cap.
+    With a fixed slope the target is log(mcap) - log(tvl) and only the intercept
+    (plus any extra terms) is fitted, with the log TVL coefficient set to 1. */
+function globalFit(rows: SnapshotProtocol[], terms: ModelTerms, asOf: string): number[] {
+  if (!terms.slopeFree) {
+    const X = rows.map((p) => [1, ...globalRow(p, terms, asOf).slice(2)]);
+    const y = rows.map((p) => Math.log(p.mcap_usd!) - Math.log(p.tvl_usd));
+    const b = ols(X, y);
+    return [b[0]!, 1, ...b.slice(1)];
+  }
+  const X = rows.map((p) => globalRow(p, terms, asOf));
   const y = rows.map((p) => Math.log(p.mcap_usd!));
   return ols(X, y);
 }
 
-function predict(beta: number[], p: SnapshotProtocol, feat: FeatureFn, asOf: string): number {
-  const x = [1, ...feat(p, asOf)];
-  return x.reduce((s, v, i) => s + v * beta[i]!, 0);
+/** Shrunk per-category offsets from a training set's residuals: the mean residual of
+    each category, shrunk by n / (n + CATEGORY_PRIOR) toward zero. A category seen once
+    contributes 1/11 of its residual, so a single protocol cannot set its own multiple. */
+function categoryOffsets(rows: SnapshotProtocol[], beta: number[], terms: ModelTerms, asOf: string): Record<string, number> {
+  const sums = new Map<string, { s: number; n: number }>();
+  for (const p of rows) {
+    const pred = globalRow(p, terms, asOf).reduce((s, v, i) => s + v * beta[i]!, 0);
+    const r = Math.log(p.mcap_usd!) - pred;
+    const c = p.category ?? 'Other';
+    const cur = sums.get(c) ?? { s: 0, n: 0 };
+    cur.s += r;
+    cur.n += 1;
+    sums.set(c, cur);
+  }
+  const out: Record<string, number> = {};
+  for (const [c, v] of sums) out[c] = (v.s / v.n) * (v.n / (v.n + CATEGORY_PRIOR));
+  return out;
+}
+
+export interface FittedParams {
+  beta: number[];
+  offsets: Record<string, number>;
+}
+
+/** Fit one nested step on a training set: global coefficients plus (optionally) shrunk category offsets. */
+function fitStep(rows: SnapshotProtocol[], terms: ModelTerms, asOf: string): FittedParams {
+  const beta = globalFit(rows, terms, asOf);
+  const offsets = terms.useCat ? categoryOffsets(rows, beta, terms, asOf) : {};
+  return { beta, offsets };
+}
+
+/** The log fitted value of one protocol under fitted parameters. */
+function predictLog(params: FittedParams, p: SnapshotProtocol, terms: ModelTerms, asOf: string): number {
+  const g = globalRow(p, terms, asOf).reduce((s, v, i) => s + v * params.beta[i]!, 0);
+  return g + (params.offsets[p.category ?? 'Other'] ?? 0);
+}
+
+/** Leave-one-out signed residuals of one step: refit everything per fold. */
+function looResiduals(rows: SnapshotProtocol[], terms: ModelTerms, asOf: string): number[] {
+  const errs: number[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const train = rows.filter((_, j) => j !== i);
+    const params = fitStep(train, terms, asOf);
+    errs.push(Math.log(rows[i]!.mcap_usd!) - predictLog(params, rows[i]!, terms, asOf));
+  }
+  return errs;
+}
+
+/** Walk-forward signed residuals: fit on the older half (by listing date), test the newer half. */
+function walkforwardResiduals(rows: SnapshotProtocol[], terms: ModelTerms, asOf: string): { errs: number[]; n: number } {
+  const dated = rows.filter((p) => ageDays(asOf, p.listed_at) !== null).sort((a, b) => (ageDays(asOf, a.listed_at) ?? 0) - (ageDays(asOf, b.listed_at) ?? 0));
+  const half = Math.floor(dated.length / 2);
+  const older = dated.slice(half);
+  const newer = dated.slice(0, half);
+  const params = fitStep(older, terms, asOf);
+  const errs = newer.map((p) => Math.log(p.mcap_usd!) - predictLog(params, p, terms, asOf));
+  return { errs, n: newer.length };
+}
+
+/** Split-half median absolute log error: fit on the even slugs, test the odd slugs (by sorted slug). */
+function splitHalf(rows: SnapshotProtocol[], terms: ModelTerms, asOf: string): number {
+  const sorted = [...rows].sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
+  const train = sorted.filter((_, i) => i % 2 === 0);
+  const test = sorted.filter((_, i) => i % 2 === 1);
+  const params = fitStep(train, terms, asOf);
+  const errs = test.map((p) => Math.abs(Math.log(p.mcap_usd!) - predictLog(params, p, terms, asOf)));
+  return median(errs);
 }
 
 export interface BlindResult {
@@ -499,120 +462,15 @@ export interface BlindResult {
   n_walkforward: number;
 }
 
-function blindTest(rows: SnapshotProtocol[], feat: FeatureFn, asOf: string): BlindResult {
-  const looErrs: number[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const train = rows.filter((_, j) => j !== i);
-    const beta = fitOn(train, feat, asOf);
-    looErrs.push(Math.abs(Math.log(rows[i]!.mcap_usd!) - predict(beta, rows[i]!, feat, asOf)));
-  }
-  const dated = rows.filter((p) => ageDays(asOf, p.listed_at) !== null).sort((a, b) => (ageDays(asOf, a.listed_at) ?? 0) - (ageDays(asOf, b.listed_at) ?? 0));
-  const half = Math.floor(dated.length / 2);
-  const older = dated.slice(half);
-  const newer = dated.slice(0, half);
-  const betaWf = fitOn(older, feat, asOf);
-  const wfErrs = newer.map((p) => Math.abs(Math.log(p.mcap_usd!) - predict(betaWf, p, feat, asOf)));
+function blindTest(rows: SnapshotProtocol[], terms: ModelTerms, asOf: string): BlindResult {
+  const loo = looResiduals(rows, terms, asOf);
+  const wf = walkforwardResiduals(rows, terms, asOf);
   return {
-    loo_median_abs_log_error: round4(median(looErrs)),
-    loo_within_2x: round4(looErrs.filter((e) => e <= Math.log(2)).length / looErrs.length),
-    walkforward_median_abs_log_error: round4(median(wfErrs)),
-    walkforward_within_2x: round4(wfErrs.filter((e) => e <= Math.log(2)).length / wfErrs.length),
-    n_walkforward: newer.length,
-  };
-}
-
-/** Absolute leave-one-out residuals of one feature set: the conformal calibration set. */
-function looAbsResiduals(rows: SnapshotProtocol[], feat: FeatureFn, asOf: string): number[] {
-  const errs: number[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const train = rows.filter((_, j) => j !== i);
-    const beta = fitOn(train, feat, asOf);
-    errs.push(Math.abs(Math.log(rows[i]!.mcap_usd!) - predict(beta, rows[i]!, feat, asOf)));
-  }
-  return errs;
-}
-
-/** 5-fold cross-check (folds by sorted slug, deterministic): median abs log error and % within 2x. */
-function fiveFold(rows: SnapshotProtocol[], feat: FeatureFn, asOf: string): { median_abs_log_error: number; within_2x: number } {
-  const sorted = [...rows].sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
-  const errs: number[] = [];
-  for (let fold = 0; fold < 5; fold++) {
-    const test = sorted.filter((_, i) => i % 5 === fold);
-    const train = sorted.filter((_, i) => i % 5 !== fold);
-    const beta = fitOn(train, feat, asOf);
-    for (const p of test) errs.push(Math.abs(Math.log(p.mcap_usd!) - predict(beta, p, feat, asOf)));
-  }
-  return {
-    median_abs_log_error: round4(median(errs)),
-    within_2x: round4(errs.filter((e) => e <= Math.log(2)).length / errs.length),
-  };
-}
-
-/** Broad groups for the grouped-category test: lending, dex/yield, staking, bridges, the rest. */
-function categoryGroup(p: SnapshotProtocol): string {
-  const c = p.category ?? '';
-  if (['Lending', 'CDP', 'Collateral Management'].includes(c)) return 'lend';
-  if (['Dexs', 'Yield', 'Yield Aggregator', 'Leveraged Farming', 'Liquidity Manager'].includes(c)) return 'dex/yield';
-  if (['Liquid Staking', 'Liquid Restaking', 'Restaking', 'Staking Pool'].includes(c)) return 'staking';
-  if (['Bridge', 'Canonical Bridge', 'Cross Chain Bridge'].includes(c)) return 'bridge';
-  return 'other';
-}
-
-/**
- * Blind test of a size curve plus a shrunk per-category (or per-group) intercept offset:
- * fit the size curve on the training set, take each category's mean residual, shrink it by
- * n / (n + 10), and add it to the prediction. A category with no training rows gets no offset.
- */
-function blindTestCat(
-  rows: SnapshotProtocol[],
-  groupFn: (p: SnapshotProtocol) => string,
-  asOf: string,
-): BlindResult {
-  const fitPredict = (train: SnapshotProtocol[]) => {
-    const beta = fitOn(train, FEATS.size, asOf);
-    const residByGroup = new Map<string, number[]>();
-    for (const p of train) {
-      const r = Math.log(p.mcap_usd!) - predict(beta, p, FEATS.size, asOf);
-      const g = groupFn(p);
-      if (!residByGroup.has(g)) residByGroup.set(g, []);
-      residByGroup.get(g)!.push(r);
-    }
-    const offset = new Map<string, number>();
-    for (const [g, rs] of residByGroup) {
-      offset.set(g, (rs.reduce((a, b) => a + b, 0) / rs.length) * (rs.length / (rs.length + 10)));
-    }
-    return (p: SnapshotProtocol) => predict(beta, p, FEATS.size, asOf) + (offset.get(groupFn(p)) ?? 0);
-  };
-  const looErrs: number[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const train = rows.filter((_, j) => j !== i);
-    looErrs.push(Math.abs(Math.log(rows[i]!.mcap_usd!) - fitPredict(train)(rows[i]!)));
-  }
-  const dated = rows.filter((p) => ageDays(asOf, p.listed_at) !== null).sort((a, b) => (ageDays(asOf, a.listed_at) ?? 0) - (ageDays(asOf, b.listed_at) ?? 0));
-  const half = Math.floor(dated.length / 2);
-  const older = dated.slice(half);
-  const newer = dated.slice(0, half);
-  const predWf = fitPredict(older);
-  const wfErrs = newer.map((p) => Math.abs(Math.log(p.mcap_usd!) - predWf(p)));
-  return {
-    loo_median_abs_log_error: round4(median(looErrs)),
-    loo_within_2x: round4(looErrs.filter((e) => e <= Math.log(2)).length / looErrs.length),
-    walkforward_median_abs_log_error: round4(median(wfErrs)),
-    walkforward_within_2x: round4(wfErrs.filter((e) => e <= Math.log(2)).length / wfErrs.length),
-    n_walkforward: newer.length,
-  };
-}
-
-function flatBaselineLoo(rows: SnapshotProtocol[]): { median_abs_log_error: number; within_2x: number } {
-  const errs: number[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const train = rows.filter((_, j) => j !== i);
-    const mult = median(train.map((p) => p.mcap_usd! / p.tvl_usd));
-    errs.push(Math.abs(Math.log(rows[i]!.mcap_usd!) - Math.log(rows[i]!.tvl_usd * mult)));
-  }
-  return {
-    median_abs_log_error: round4(median(errs)),
-    within_2x: round4(errs.filter((e) => e <= Math.log(2)).length / errs.length),
+    loo_median_abs_log_error: round4(median(loo.map((e) => Math.abs(e)))),
+    loo_within_2x: round4(loo.filter((e) => Math.abs(e) <= Math.log(2)).length / loo.length),
+    walkforward_median_abs_log_error: round4(median(wf.errs.map((e) => Math.abs(e)))),
+    walkforward_within_2x: round4(wf.errs.filter((e) => Math.abs(e) <= Math.log(2)).length / wf.errs.length),
+    n_walkforward: wf.n,
   };
 }
 
@@ -621,15 +479,17 @@ export interface AblationRow {
   kept: boolean;
   loo_median_abs_log_error: number;
   walkforward_median_abs_log_error: number;
+  split_half_median_abs_log_error: number;
 }
 
 export interface Validation {
-  curve: { intercept: number; slope: number; quad_coef: number; r2: number; n_comps: number };
-  size_only: BlindResult;
-  size_only_fivefold: { median_abs_log_error: number; within_2x: number };
-  quad: BlindResult;
-  quad_fivefold: { median_abs_log_error: number; within_2x: number };
-  flat_baseline: { median_abs_log_error: number; within_2x: number };
+  model: { intercept: number; beta: number; r2: number; n_comps: number; n_categories: number };
+  /** The selection score: the mean of the selected model's leave-one-out and
+      walk-forward median absolute log errors. Lower is better. The hand-set
+      starter model (radar-1: fixed 0.25 multiple, growth and maturity factors)
+      scores 1.6486 on the same definition (1.6363 on the deduped comps). */
+  selection_score: number;
+  selected: BlindResult & { split_half_median_abs_log_error: number };
   ablation: AblationRow[];
   odds: {
     brier_loo: number;
@@ -637,39 +497,26 @@ export interface Validation {
     base_brier: number;
     base_logloss: number;
     n_dated: number;
-    /** The v2 age/category blend, for comparison: same LOO and 5-fold scores. */
-    v2_brier_loo: number;
-    v2_logloss_loo: number;
     fivefold_brier: number;
     fivefold_logloss: number;
-    fivefold_v2_brier: number;
-    fivefold_v2_logloss: number;
-    /** The refused v3 variant (logistic with winsorised growth), scored the
-        same way so the trade of dropping growth is visible in the record. */
-    v3_brier_loo: number;
-    v3_logloss_loo: number;
-    fivefold_v3_brier: number;
-    fivefold_v3_logloss: number;
     logit_lam: number;
   };
-  conformal: {
-    half_width_log: number;
-    nominal: number;
-    loo_coverage: number;
-    walkforward_coverage: number;
-    walkforward_half_width_log: number;
+  calibration: {
+    q10_log: number;
+    q25_log: number;
+    q75_log: number;
+    q90_log: number;
+    p2575_loo: number;
+    p1090_loo: number;
+    within3x_loo: number;
+    p2575_wf: number;
+    p1090_wf: number;
+    within3x_wf: number;
     n_walkforward: number;
-    /** Conformal coverage tested four ways: the 90% range calibrated on a
-        training set and counted on a held-out set — leave-one-out, walk-forward,
-        5-fold by slug, and the newest third of dated comps. */
-    fivefold_coverage: number;
-    newer_third_coverage: number;
+    p1090_fivefold: number;
+    p1090_newer_third: number;
     n_newer_third: number;
   };
-  /** The quadratic curve on the newest third of dated comps (fit on the older
-      two-thirds): the fourth held-out check of the curve itself. */
-  quad_newer_third: { median_abs_log_error: number; within_2x: number; n: number };
-  size_newer_third: { median_abs_log_error: number; within_2x: number; n: number };
 }
 
 const AGE_BUCKETS: { lo: number; hi: number | null }[] = [
@@ -689,126 +536,121 @@ function bucketOf(age: number | null): number {
   return AGE_BUCKETS.length - 1;
 }
 
-/** Fit the whole model from the snapshot: curve, blind tests, ablation, launch odds, conformal. */
+/** Fit the whole model from the snapshot: fitted curve, blind tests, ablation, launch odds, calibration. */
 export function fitModel(snapshot: Snapshot): { model: ModelConstants; validation: Validation } {
   const asOf = snapshot.as_of;
   const comps = compsOf(snapshot);
-  const betaQuad = fitOn(comps, FEATS['size+quad']!, asOf);
-  const intercept = betaQuad[0]!;
-  const slope = betaQuad[1]!;
-  const quadCoef = betaQuad[2]!;
+
+  // The nested steps, added in order. A step stays only if it beats the previous step
+  // on BOTH blind tests (leave-one-out and walk-forward).
+  const steps: { term: string; terms: ModelTerms }[] = [
+    { term: 'flat multiple', terms: FLAT },
+    { term: '+category offsets', terms: PLUS_CAT },
+    { term: '+size elasticity', terms: PLUS_SIZE },
+    { term: '+growth (7-day)', terms: PLUS_GROWTH },
+    { term: '+maturity (log age)', terms: PLUS_MATURITY },
+    { term: '+breadth (chain count)', terms: PLUS_BREADTH },
+    { term: 'full model', terms: FULL },
+  ];
+  const stepResults = steps.map((s) => {
+    const blind = blindTest(comps, s.terms, asOf);
+    return { term: s.term, terms: s.terms, blind, splitHalf: round4(splitHalf(comps, s.terms, asOf)) };
+  });
+  const beats = (a: BlindResult, b: BlindResult) =>
+    a.loo_median_abs_log_error < b.loo_median_abs_log_error &&
+    a.walkforward_median_abs_log_error < b.walkforward_median_abs_log_error;
+  // The keep rule: the flat multiple is the baseline; +category and +size are
+  // cumulative additions, each judged against the previous step. +growth,
+  // +maturity and +breadth are alternative additions to +size, so each is judged
+  // against +size — not against each other, which would let a term through
+  // merely by beating a worse sibling. The full model is judged against +size too.
+  const ablation: AblationRow[] = stepResults.map((s, i) => ({
+    term: s.term,
+    kept: i === 0 ? true : i <= 2 ? beats(s.blind, stepResults[i - 1]!.blind) : beats(s.blind, stepResults[2]!.blind),
+    loo_median_abs_log_error: s.blind.loo_median_abs_log_error,
+    walkforward_median_abs_log_error: s.blind.walkforward_median_abs_log_error,
+    split_half_median_abs_log_error: s.splitHalf,
+  }));
+  const selected = stepResults[2]!;
+  const selectionScore = round4((selected.blind.loo_median_abs_log_error + selected.blind.walkforward_median_abs_log_error) / 2);
+
+  // The selected model's full-fit coefficients (rounded for the model record; the board
+  // is scored from these rounded numbers, so the dashboard recomputes the same values).
+  const params = fitStep(comps, PLUS_SIZE, asOf);
+  const intercept = round4(params.beta[0]!);
+  const beta = round4(params.beta[1]!);
+  const offsets: Record<string, number> = {};
+  for (const [c, v] of Object.entries(params.offsets)) offsets[c] = round4(v);
   const ys = comps.map((p) => Math.log(p.mcap_usd!));
   const meanY = ys.reduce((a, b) => a + b, 0) / ys.length;
   let ssRes = 0;
   let ssTot = 0;
   for (const p of comps) {
-    const lt = Math.log(p.tvl_usd);
-    const pred = intercept + slope * lt + quadCoef * lt * lt;
+    const pred = predictLog(params, p, PLUS_SIZE, asOf);
     ssRes += (Math.log(p.mcap_usd!) - pred) ** 2;
     ssTot += (Math.log(p.mcap_usd!) - meanY) ** 2;
   }
-  const r2 = 1 - ssRes / ssTot;
+  const r2 = round4(1 - ssRes / ssTot);
 
-  const sizeOnly = blindTest(comps, FEATS.size, asOf);
-  const quadBlind = blindTest(comps, FEATS['size+quad']!, asOf);
-  const sizeFive = fiveFold(comps, FEATS.size, asOf);
-  const quadFive = fiveFold(comps, FEATS['size+quad']!, asOf);
-  const flat = flatBaselineLoo(comps);
-
-  // Ablation: a term stays only if it beats its baseline on BOTH blind tests.
-  const ablation: AblationRow[] = [];
-  const beats = (t: BlindResult, base: BlindResult) =>
-    t.loo_median_abs_log_error < base.loo_median_abs_log_error &&
-    t.walkforward_median_abs_log_error < base.walkforward_median_abs_log_error;
-  for (const name of ['size+growth', 'size+maturity', 'size+chains', 'size+growth+maturity+chains', 'size+placebo', 'size+growth_w20']) {
-    const t = blindTest(comps, FEATS[name]!, asOf);
-    ablation.push({ term: name, kept: beats(t, sizeOnly), loo_median_abs_log_error: t.loo_median_abs_log_error, walkforward_median_abs_log_error: t.walkforward_median_abs_log_error });
-  }
-  ablation.push({ term: 'size+quad', kept: beats(quadBlind, sizeOnly), loo_median_abs_log_error: quadBlind.loo_median_abs_log_error, walkforward_median_abs_log_error: quadBlind.walkforward_median_abs_log_error });
-  for (const name of ['quad+growth', 'quad+maturity', 'quad+chains', 'quad+all', 'quad+placebo', 'cubic', 'spline1', 'spline2', 'quad+spline1', 'quad+growth_w20', 'quad+growth_w50', 'quad+abs_growth', 'quad+lt_logage', 'quad+log1p_chains', 'quad+chains_cap3', 'quad+has_eth', 'quad+has_sol', 'quad+chainflags', 'quad+grp_dummies', 'quad+grp_lt', 'quad+growth_logage', 'quad+tvlperchain', 'quad+growth_sign', 'quad+hinge2', 'cubic+growth_w20', 'quad+inv_nch', 'quad+nch2', 'quad+lt_growth_w20', 'quad+lt_log1p_chains', 'quad+logage_hinge']) {
-    const t = blindTest(comps, FEATS[name]!, asOf);
-    ablation.push({ term: name, kept: beats(t, quadBlind), loo_median_abs_log_error: t.loo_median_abs_log_error, walkforward_median_abs_log_error: t.walkforward_median_abs_log_error });
-  }
-  const catTest = blindTestCat(comps, (p) => p.category ?? 'Other', asOf);
-  ablation.push({ term: 'size+category-intercept', kept: beats(catTest, sizeOnly), loo_median_abs_log_error: catTest.loo_median_abs_log_error, walkforward_median_abs_log_error: catTest.walkforward_median_abs_log_error });
-  const grpTest = blindTestCat(comps, categoryGroup, asOf);
-  ablation.push({ term: 'size+category-grouped', kept: beats(grpTest, sizeOnly), loo_median_abs_log_error: grpTest.loo_median_abs_log_error, walkforward_median_abs_log_error: grpTest.walkforward_median_abs_log_error });
-  // v6: one-per-ticker dedup — group the comps by lowercased token symbol and
-  // keep the largest-TVL protocol per symbol. Only one symbol collides
-  // (BIFI: beefy vs bifi, different gecko ids — likely two different tokens
-  // sharing a ticker), so n falls 128 -> 127 and the walk-forward set is
-  // unchanged (bifi has no listing date). The deduped curve loses LOO, so
-  // it is dropped; dedup by gecko id changes nothing (128 distinct ids).
-  const bySymbol = new Map<string, SnapshotProtocol>();
-  for (const p of comps) {
-    const key = (p.symbol ?? p.slug).toLowerCase();
-    const cur = bySymbol.get(key);
-    if (cur === undefined || p.tvl_usd > cur.tvl_usd) bySymbol.set(key, p);
-  }
-  const deduped = [...bySymbol.values()];
-  const dedupBlind = blindTest(deduped, FEATS['size+quad']!, asOf);
-  ablation.push({ term: 'quad+dedup-by-symbol', kept: beats(dedupBlind, quadBlind), loo_median_abs_log_error: dedupBlind.loo_median_abs_log_error, walkforward_median_abs_log_error: dedupBlind.walkforward_median_abs_log_error });
-
-  // Conformal interval from the leave-one-out residuals of the quadratic curve,
-  // at the 90th percentile: half-width = q90 of |LOO residual|, so the interval
-  // is a 90% range (P5-P95) over residual uncertainty. v2 used q80 and its
-  // walk-forward coverage was only 63.8% against a nominal 80%. Walk-forward
-  // coverage here is the honest held-out number: calibrate the half-width on the
-  // older half's own LOO residuals (at q90), then count coverage on the newer half.
-  const looAbs = looAbsResiduals(comps, FEATS['size+quad']!, asOf);
-  const halfWidth = quantile(looAbs, 0.9);
-  const looCoverage = looAbs.filter((e) => e <= halfWidth).length / looAbs.length;
+  // Calibration of the selected model, from its own leave-one-out residuals.
+  const loo = looResiduals(comps, PLUS_SIZE, asOf);
+  const q10 = round4(quantile(loo, 0.1));
+  const q25 = round4(quantile(loo, 0.25));
+  const q75 = round4(quantile(loo, 0.75));
+  const q90 = round4(quantile(loo, 0.9));
+  const cover = (errs: number[], lo: number, hi: number): number => errs.filter((e) => e >= lo && e <= hi).length / errs.length;
+  const p2575Loo = round4(cover(loo, q25, q75));
+  const p1090Loo = round4(cover(loo, q10, q90));
+  const within3xLoo = round4(loo.filter((e) => Math.abs(e) <= Math.log(3)).length / loo.length);
+  // Walk-forward coverage: calibrate the band on the older half's own LOO residuals,
+  // count coverage on the newer half.
   const datedComps = comps.filter((p) => ageDays(asOf, p.listed_at) !== null).sort((a, b) => (ageDays(asOf, a.listed_at) ?? 0) - (ageDays(asOf, b.listed_at) ?? 0));
   const half = Math.floor(datedComps.length / 2);
   const olderComps = datedComps.slice(half);
   const newerComps = datedComps.slice(0, half);
-  const olderLooAbs = looAbsResiduals(olderComps, FEATS['size+quad']!, asOf);
-  const wfHalfWidth = quantile(olderLooAbs, 0.9);
-  const betaWf = fitOn(olderComps, FEATS['size+quad']!, asOf);
-  const wfCoverage =
-    newerComps.filter((p) => Math.abs(Math.log(p.mcap_usd!) - predict(betaWf, p, FEATS['size+quad']!, asOf)) <= wfHalfWidth).length / newerComps.length;
-
-  // Conformal tested four ways. 5-fold: for each fold, calibrate the q90
-  // half-width on the other four folds' own LOO residuals and count coverage
-  // on the held-out fold. Newest third: dated comps sorted by age, fit on the
-  // older two-thirds, calibrate q90 on their LOO residuals, count coverage on
-  // the newest third — and report the curve's own median error there too.
+  const olderLoo = looResiduals(olderComps, PLUS_SIZE, asOf);
+  const wfQ10 = quantile(olderLoo, 0.1);
+  const wfQ25 = quantile(olderLoo, 0.25);
+  const wfQ75 = quantile(olderLoo, 0.75);
+  const wfQ90 = quantile(olderLoo, 0.9);
+  const wfParams = fitStep(olderComps, PLUS_SIZE, asOf);
+  const wfErrs = newerComps.map((p) => Math.log(p.mcap_usd!) - predictLog(wfParams, p, PLUS_SIZE, asOf));
+  const p2575Wf = round4(cover(wfErrs, wfQ25, wfQ75));
+  const p1090Wf = round4(cover(wfErrs, wfQ10, wfQ90));
+  const within3xWf = round4(wfErrs.filter((e) => Math.abs(e) <= Math.log(3)).length / wfErrs.length);
+  // 5-fold coverage: for each fold, calibrate on the other folds' LOO residuals, count on the held-out fold.
   const sortedComps = [...comps].sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   let fivefoldCovered = 0;
   for (let fold = 0; fold < 5; fold++) {
     const test = sortedComps.filter((_, i) => i % 5 === fold);
     const train = sortedComps.filter((_, i) => i % 5 !== fold);
-    const hw = quantile(looAbsResiduals(train, FEATS['size+quad']!, asOf), 0.9);
-    const beta = fitOn(train, FEATS['size+quad']!, asOf);
-    fivefoldCovered += test.filter((p) => Math.abs(Math.log(p.mcap_usd!) - predict(beta, p, FEATS['size+quad']!, asOf)) <= hw).length;
+    const trainLoo = looResiduals(train, PLUS_SIZE, asOf);
+    const lo = quantile(trainLoo, 0.1);
+    const hi = quantile(trainLoo, 0.9);
+    const paramsFold = fitStep(train, PLUS_SIZE, asOf);
+    fivefoldCovered += test.filter((p) => {
+      const e = Math.log(p.mcap_usd!) - predictLog(paramsFold, p, PLUS_SIZE, asOf);
+      return e >= lo && e <= hi;
+    }).length;
   }
-  const fivefoldCoverage = fivefoldCovered / comps.length;
+  const p1090Fivefold = round4(fivefoldCovered / comps.length);
+  // Newest third: fit on the older two-thirds, calibrate on their LOO residuals, count on the newest third.
   const third = Math.floor(datedComps.length / 3);
   const newestThird = datedComps.slice(0, third);
   const olderTwoThirds = datedComps.slice(third);
-  const ntHalfWidth = quantile(looAbsResiduals(olderTwoThirds, FEATS['size+quad']!, asOf), 0.9);
-  const betaNt = fitOn(olderTwoThirds, FEATS['size+quad']!, asOf);
-  const ntCoverage =
-    newestThird.filter((p) => Math.abs(Math.log(p.mcap_usd!) - predict(betaNt, p, FEATS['size+quad']!, asOf)) <= ntHalfWidth).length / newestThird.length;
-  const ntQuadErrs = newestThird.map((p) => Math.abs(Math.log(p.mcap_usd!) - predict(betaNt, p, FEATS['size+quad']!, asOf)));
-  const betaNtLin = fitOn(olderTwoThirds, FEATS.size, asOf);
-  const ntLinErrs = newestThird.map((p) => Math.abs(Math.log(p.mcap_usd!) - predict(betaNtLin, p, FEATS.size, asOf)));
-  const quadNewerThird = {
-    median_abs_log_error: round4(median(ntQuadErrs)),
-    within_2x: round4(ntQuadErrs.filter((e) => e <= Math.log(2)).length / ntQuadErrs.length),
-    n: newestThird.length,
-  };
-  const sizeNewerThird = {
-    median_abs_log_error: round4(median(ntLinErrs)),
-    within_2x: round4(ntLinErrs.filter((e) => e <= Math.log(2)).length / ntLinErrs.length),
-    n: newestThird.length,
-  };
+  const ntLoo = looResiduals(olderTwoThirds, PLUS_SIZE, asOf);
+  const ntLo = quantile(ntLoo, 0.1);
+  const ntHi = quantile(ntLoo, 0.9);
+  const ntParams = fitStep(olderTwoThirds, PLUS_SIZE, asOf);
+  const ntCovered = newestThird.filter((p) => {
+    const e = Math.log(p.mcap_usd!) - predictLog(ntParams, p, PLUS_SIZE, asOf);
+    return e >= ntLo && e <= ntHi;
+  }).length;
+  const p1090NewerThird = round4(ntCovered / newestThird.length);
 
-  // Launch odds: empirical token rate by age bucket over the dated protocols that could
-  // launch a token of their own (not CEX, not a versioned pool, not wrapped/staked/bridged),
-  // shrunk toward the overall dated rate with a prior weight of ODDS_PRIOR. The final odds
-  // blend that age-bucket rate (85%) with the protocol's category rate (15%), each shrunk
-  // the same way; the blend is what the LOO scores below measure.
+  // Launch odds: the v6 ridge logistic regression (lambda ODDS_LOGIT_LAMBDA) on
+  // age-bucket dummies (oldest bucket as reference) and log TVL — no growth.
+  // Unchanged from v6; the odds ablation table is deliberately not carried into v8.
   const oddsPool = snapshot.protocols.filter(
     (p) => p.category !== 'CEX' && !VERSIONED.test(p.name) && !isWrappedOrBridged(p) && ageDays(asOf, p.listed_at) !== null,
   );
@@ -819,86 +661,21 @@ export function fitModel(snapshot: Snapshot): { model: ModelConstants; validatio
     const shrunk = (sub.length * rate + ODDS_PRIOR * baseRate) / (sub.length + ODDS_PRIOR);
     return { lo_days: b.lo, hi_days: b.hi, rate: round4(shrunk), n: sub.length };
   });
-  const shrunkRate = (rows: SnapshotProtocol[], base: number): number => {
-    if (rows.length === 0) return base;
-    const rate = rows.filter((q) => !isPreToken(q)).length / rows.length;
-    return (rows.length * rate + ODDS_PRIOR * base) / (rows.length + ODDS_PRIOR);
-  };
-  const oddsOfPoolRow = (p: SnapshotProtocol, rest: SnapshotProtocol[], weight: number): number => {
-    const restBase = rest.filter((q) => !isPreToken(q)).length / rest.length;
+  const oddsFeatures = (p: SnapshotProtocol): number[] => {
     const b = bucketOf(ageDays(asOf, p.listed_at));
-    const ageRate = shrunkRate(rest.filter((q) => bucketOf(ageDays(asOf, q.listed_at)) === b), restBase);
-    const catRate = shrunkRate(rest.filter((q) => (q.category ?? 'Other') === (p.category ?? 'Other')), restBase);
-    return (1 - weight) * ageRate + weight * catRate;
+    return [b === 0 ? 1 : 0, b === 1 ? 1 : 0, b === 2 ? 1 : 0, b === 3 ? 1 : 0, Math.log(p.tvl_usd)];
   };
-  const looOdds = (weight: number): { brier: number; logloss: number; baseBrier: number; baseLogloss: number } => {
-    let brier = 0;
-    let logloss = 0;
-    let baseBrier = 0;
-    let baseLogloss = 0;
-    for (let i = 0; i < oddsPool.length; i++) {
-      const p = oddsPool[i]!;
-      const rest = oddsPool.filter((_, j) => j !== i);
-      const restBase = rest.filter((q) => !isPreToken(q)).length / rest.length;
-      const o = oddsOfPoolRow(p, rest, weight);
-      const y = isPreToken(p) ? 0 : 1;
-      brier += (o - y) ** 2;
-      const oc = Math.min(Math.max(o, 0.01), 0.99);
-      logloss += -(y * Math.log(oc) + (1 - y) * Math.log(1 - oc));
-      baseBrier += (restBase - y) ** 2;
-      const bc = Math.min(Math.max(restBase, 0.01), 0.99);
-      baseLogloss += -(y * Math.log(bc) + (1 - y) * Math.log(1 - bc));
-    }
-    const n = oddsPool.length;
-    return { brier: brier / n, logloss: logloss / n, baseBrier: baseBrier / n, baseLogloss: baseLogloss / n };
-  };
-  const fivefoldOdds = (weight: number): { brier: number; logloss: number } => {
-    let brier = 0;
-    let logloss = 0;
-    let n = 0;
-    for (let fold = 0; fold < 5; fold++) {
-      const test = oddsPool.filter((_, i) => i % 5 === fold);
-      const train = oddsPool.filter((_, i) => i % 5 !== fold);
-      for (const p of test) {
-        const o = oddsOfPoolRow(p, train, weight);
-        const y = isPreToken(p) ? 0 : 1;
-        brier += (o - y) ** 2;
-        const oc = Math.min(Math.max(o, 0.01), 0.99);
-        logloss += -(y * Math.log(oc) + (1 - y) * Math.log(1 - oc));
-        n++;
-      }
-    }
-    return { brier: brier / n, logloss: logloss / n };
-  };
-  // The v2 blend, kept only as the comparison: 85% age bucket, 15% category.
-  const blended = looOdds(0.15);
-  const blendedFive = fivefoldOdds(0.15);
-  const n = oddsPool.length;
-
-  // v4 launch odds: a ridge logistic regression (lambda ODDS_LOGIT_LAMBDA) on
-  // age-bucket dummies (oldest bucket as reference) and log TVL — no growth.
-  // Features are standardised inside the fit; the full fit is converted to
-  // raw coefficients for the model record. The v3 variant (with winsorised
-  // growth, growthWinsor 20) is scored the same way below so the cost of
-  // dropping growth is in the record, not asserted.
-  const oddsFeatures = (p: SnapshotProtocol, withGrowth: boolean): number[] => {
-    const b = bucketOf(ageDays(asOf, p.listed_at));
-    const base = [b === 0 ? 1 : 0, b === 1 ? 1 : 0, b === 2 ? 1 : 0, b === 3 ? 1 : 0, Math.log(p.tvl_usd)];
-    if (!withGrowth) return base;
-    const g = Math.max(-20, Math.min(20, p.change_7d ?? 0)) / 100;
-    return [...base, g];
-  };
-  const logitLoo = (withGrowth: boolean): { brier: number; logloss: number } => {
+  const logitLoo = (): { brier: number; logloss: number } => {
     let brier = 0;
     let logloss = 0;
     for (let i = 0; i < oddsPool.length; i++) {
       const p = oddsPool[i]!;
       const rest = oddsPool.filter((_, j) => j !== i);
-      const X = rest.map((q) => [1, ...oddsFeatures(q, withGrowth)]);
+      const X = rest.map((q) => [1, ...oddsFeatures(q)]);
       const y = rest.map((q) => (isPreToken(q) ? 0 : 1));
       const fit = ridgeLogitFit(X, y, ODDS_LOGIT_LAMBDA);
       const raw = logitRawBeta(fit);
-      const o = sigmoid(raw.reduce((s, v, j) => s + v * [1, ...oddsFeatures(p, withGrowth)][j]!, 0));
+      const o = sigmoid(raw.reduce((s, v, j) => s + v * [1, ...oddsFeatures(p)][j]!, 0));
       const yy = isPreToken(p) ? 0 : 1;
       brier += (o - yy) ** 2;
       const oc = Math.min(Math.max(o, 0.01), 0.99);
@@ -906,19 +683,19 @@ export function fitModel(snapshot: Snapshot): { model: ModelConstants; validatio
     }
     return { brier: brier / oddsPool.length, logloss: logloss / oddsPool.length };
   };
-  const logitFivefold = (withGrowth: boolean): { brier: number; logloss: number } => {
+  const logitFivefold = (): { brier: number; logloss: number } => {
     let brier = 0;
     let logloss = 0;
     let count = 0;
     for (let fold = 0; fold < 5; fold++) {
       const test = oddsPool.filter((_, i) => i % 5 === fold);
       const train = oddsPool.filter((_, i) => i % 5 !== fold);
-      const X = train.map((q) => [1, ...oddsFeatures(q, withGrowth)]);
+      const X = train.map((q) => [1, ...oddsFeatures(q)]);
       const y = train.map((q) => (isPreToken(q) ? 0 : 1));
       const fit = ridgeLogitFit(X, y, ODDS_LOGIT_LAMBDA);
       const raw = logitRawBeta(fit);
       for (const p of test) {
-        const o = sigmoid(raw.reduce((s, v, j) => s + v * [1, ...oddsFeatures(p, withGrowth)][j]!, 0));
+        const o = sigmoid(raw.reduce((s, v, j) => s + v * [1, ...oddsFeatures(p)][j]!, 0));
         const yy = isPreToken(p) ? 0 : 1;
         brier += (o - yy) ** 2;
         const oc = Math.min(Math.max(o, 0.01), 0.99);
@@ -928,60 +705,71 @@ export function fitModel(snapshot: Snapshot): { model: ModelConstants; validatio
     }
     return { brier: brier / count, logloss: logloss / count };
   };
-  const logitScores = logitLoo(false);
-  const logitFive = logitFivefold(false);
-  const logitScoresV3 = logitLoo(true);
-  const logitFiveV3 = logitFivefold(true);
-  const logitFullX = oddsPool.map((q) => [1, ...oddsFeatures(q, false)]);
+  const logitScores = logitLoo();
+  const logitFive = logitFivefold();
+  const logitFullX = oddsPool.map((q) => [1, ...oddsFeatures(q)]);
   const logitFullY = oddsPool.map((q) => (isPreToken(q) ? 0 : 1));
   const logitRaw = logitRawBeta(ridgeLogitFit(logitFullX, logitFullY, ODDS_LOGIT_LAMBDA));
+  // Base-rate Brier / log-loss (leave-one-out base rate, as in v6).
+  let baseBrier = 0;
+  let baseLogloss = 0;
+  for (let i = 0; i < oddsPool.length; i++) {
+    const p = oddsPool[i]!;
+    const rest = oddsPool.filter((_, j) => j !== i);
+    const restBase = rest.filter((q) => !isPreToken(q)).length / rest.length;
+    const yy = isPreToken(p) ? 0 : 1;
+    baseBrier += (restBase - yy) ** 2;
+    const bc = Math.min(Math.max(restBase, 0.01), 0.99);
+    baseLogloss += -(yy * Math.log(bc) + (1 - yy) * Math.log(1 - bc));
+  }
+  baseBrier /= oddsPool.length;
+  baseLogloss /= oddsPool.length;
 
   const validation: Validation = {
-    curve: { intercept: round4(intercept), slope: round4(slope), quad_coef: round4(quadCoef), r2: round4(r2), n_comps: comps.length },
-    size_only: sizeOnly,
-    size_only_fivefold: sizeFive,
-    quad: quadBlind,
-    quad_fivefold: quadFive,
-    flat_baseline: flat,
+    model: { intercept, beta, r2, n_comps: comps.length, n_categories: Object.keys(offsets).length },
+    selection_score: selectionScore,
+    selected: {
+      loo_median_abs_log_error: selected.blind.loo_median_abs_log_error,
+      loo_within_2x: selected.blind.loo_within_2x,
+      walkforward_median_abs_log_error: selected.blind.walkforward_median_abs_log_error,
+      walkforward_within_2x: selected.blind.walkforward_within_2x,
+      n_walkforward: selected.blind.n_walkforward,
+      split_half_median_abs_log_error: selected.splitHalf,
+    },
     ablation,
     odds: {
       brier_loo: round4(logitScores.brier),
       logloss_loo: round4(logitScores.logloss),
-      base_brier: round4(blended.baseBrier),
-      base_logloss: round4(blended.baseLogloss),
-      n_dated: n,
-      v2_brier_loo: round4(blended.brier),
-      v2_logloss_loo: round4(blended.logloss),
+      base_brier: round4(baseBrier),
+      base_logloss: round4(baseLogloss),
+      n_dated: oddsPool.length,
       fivefold_brier: round4(logitFive.brier),
       fivefold_logloss: round4(logitFive.logloss),
-      fivefold_v2_brier: round4(blendedFive.brier),
-      fivefold_v2_logloss: round4(blendedFive.logloss),
-      v3_brier_loo: round4(logitScoresV3.brier),
-      v3_logloss_loo: round4(logitScoresV3.logloss),
-      fivefold_v3_brier: round4(logitFiveV3.brier),
-      fivefold_v3_logloss: round4(logitFiveV3.logloss),
       logit_lam: ODDS_LOGIT_LAMBDA,
     },
-    conformal: {
-      half_width_log: round4(halfWidth),
-      nominal: 0.9,
-      loo_coverage: round4(looCoverage),
-      walkforward_coverage: round4(wfCoverage),
-      walkforward_half_width_log: round4(wfHalfWidth),
+    calibration: {
+      q10_log: q10,
+      q25_log: q25,
+      q75_log: q75,
+      q90_log: q90,
+      p2575_loo: p2575Loo,
+      p1090_loo: p1090Loo,
+      within3x_loo: within3xLoo,
+      p2575_wf: p2575Wf,
+      p1090_wf: p1090Wf,
+      within3x_wf: within3xWf,
       n_walkforward: newerComps.length,
-      fivefold_coverage: round4(fivefoldCoverage),
-      newer_third_coverage: round4(ntCoverage),
+      p1090_fivefold: p1090Fivefold,
+      p1090_newer_third: p1090NewerThird,
       n_newer_third: newestThird.length,
     },
-    quad_newer_third: quadNewerThird,
-    size_newer_third: sizeNewerThird,
   };
   const model: ModelConstants = {
-    intercept: round4(intercept),
-    slope: round4(slope),
-    quad_coef: round4(quadCoef),
-    r2: round4(r2),
+    intercept,
+    beta,
+    r2,
     n_comps: comps.length,
+    offsets,
     odds_buckets: buckets,
     base_odds: round4(baseRate),
     odds_prior: ODDS_PRIOR,
@@ -997,9 +785,8 @@ export function fitModel(snapshot: Snapshot): { model: ModelConstants; validatio
 }
 
 /** Launch odds for one protocol: the ridge logistic model (age bucket +
-    log TVL, no growth). Protocols with no listing date use the base rate,
-    as in v2. The growth argument is kept for call-site compatibility and
-    ignored: v4 deliberately does not use 7-day growth anywhere. */
+    log TVL, no growth). Protocols with no listing date use the base rate.
+    The growth argument is kept for call-site compatibility and ignored. */
 export function launchOdds(model: ModelConstants, age: number | null, tvlUsd: number, _growthPct: number | null): number {
   if (age === null) return model.base_odds;
   const L = model.odds_logit;
@@ -1009,9 +796,8 @@ export function launchOdds(model: ModelConstants, age: number | null, tvlUsd: nu
 }
 
 /** The fitted implied value (before odds) for one protocol. */
-export function fittedValue(model: ModelConstants, tvlUsd: number): number {
-  const lt = Math.log(tvlUsd);
-  return Math.exp(model.intercept + model.slope * lt + model.quad_coef * lt * lt);
+export function fittedValue(model: ModelConstants, p: SnapshotProtocol): number {
+  return Math.exp(model.intercept + model.beta * Math.log(p.tvl_usd) + (model.offsets[p.category ?? 'Other'] ?? 0));
 }
 
 const round4 = (n: number): number => Math.round(n * 1e4) / 1e4;
@@ -1025,7 +811,8 @@ export interface FarmStep {
   time: string;
 }
 
-/** Farm economics, netted on the P10 expected value. */
+/** Farm economics, netted on the P10 expected value. The verdict is defined by
+    the break-even odds (see below), not by the breakeven bps of v6. */
 export interface FarmEconomics {
   capital_usd: number;
   gas_total_usd: number;
@@ -1037,10 +824,24 @@ export interface FarmEconomics {
   usd_per_hour_10pct: number;
   /** Share of the P10 expected value a farmer must capture to cover the gas bill, in percent. */
   capture_breakeven_pct: number;
+  /** The launch odds at which capturing 0.001% of the fitted value exactly covers the gas bill:
+      gas_total / (0.001% * fitted). A row whose odds sit below this number can never pay for
+      its own gas at that capture share, whatever the capital. */
+  breakeven_odds: number;
+  /** The gas bill as a share of the capital put in, in percent. */
+  gas_drag_pct: number;
   /** Smallest capital (whole dollars) at which this row would flip to FARM, or null when no
-      capital flips it because the breakeven, not the gas drag, is the blocker. */
+      capital flips it because the odds are below the break-even odds. */
   capital_flip_usd: number | null;
   verdict: 'FARM' | 'THIN' | 'SKIP';
+}
+
+/** One peer: a live-token comp in the same category, closest by fitted value. */
+export interface Peer {
+  slug: string;
+  name: string;
+  fitted_value_usd: number;
+  same_category: boolean;
 }
 
 /** One row of board.json: the ranked board's row. */
@@ -1064,12 +865,21 @@ export interface BoardRow {
     launch_odds: number;
     p10_usd: number;
     p90_usd: number;
-    conf_lo_usd: number;
-    conf_hi_usd: number;
+    /** The calibration band: fitted * exp([q10, q90]) * odds, from the fitted model's own
+        leave-one-out residuals. Deliberately NOT clamped to the bootstrap range (p10-p90):
+        the band is a property of the model's residuals, and clamping it would hide the rows
+        where the model is less certain than the bootstrap suggests. */
+    cal_lo_usd: number;
+    cal_hi_usd: number;
     rank_low: number;
     rank_high: number;
     growth_pct: number;
     age_days: number | null;
+    /** The launch odds at which capturing 0.001% of the fitted value exactly covers the gas bill. */
+    breakeven_odds: number;
+    /** Up to 8 comps in the same category, closest by fitted value; filled with the nearest
+        comps from other categories (same_category: false) when a category has fewer than 8. */
+    peers: Peer[];
   };
   farm: FarmEconomics;
   farm_steps: string[];
@@ -1092,10 +902,12 @@ export interface RadarRow {
   launch_odds: number;
   p10_usd: number;
   p90_usd: number;
-  conf_lo_usd: number;
-  conf_hi_usd: number;
+  cal_lo_usd: number;
+  cal_hi_usd: number;
   rank_low: number;
   rank_high: number;
+  breakeven_odds: number;
+  peers: Peer[];
   verdict: 'FARM' | 'THIN' | 'SKIP';
   capital_usd: number;
   gas_total_usd: number;
@@ -1136,8 +948,6 @@ export interface RadarData {
   watchlist_slugs: string[];
   rows: RadarRow[];
   live: LiveRow[];
-  /** The size curve as a chart: binned comp medians plus the fitted curve sampled across them. */
-  curve_chart: { bins: { log_tvl: number; log_mcap: number; n: number }[]; curve: { log_tvl: number; log_mcap: number }[]; points: { log_tvl: number; log_mcap: number }[] };
 }
 
 /** Why the snapshot is not one this model can score. */
@@ -1218,8 +1028,15 @@ function secondActionFor(p: SnapshotProtocol, capital: number, chain: string): s
   return `Make a second, different action on ${name} on ${chain}: a swap, a vote or a second deposit of $${Math.max(10, Math.round(capital / 5))}.`;
 }
 
-/** Farm economics from the P10 expected value, the capital and the chain's gas. */
-export function farmEconomics(p: SnapshotProtocol, age: number | null, p10Expected: number): FarmEconomics {
+/** Farm economics from the P10 expected value, the capital and the chain's gas.
+    The verdict rule (defined here, applied to every row the same way):
+      break-even odds = gas_total / (0.001% * fitted) — the launch odds at which capturing
+        0.001% of the fitted value exactly covers the gas bill.
+      FARM when odds >= break-even odds AND gas drag (gas_total / capital) <= 10%;
+      THIN when odds >= break-even odds AND gas drag <= 30%; otherwise SKIP.
+    Raising capital only fixes the gas drag, never the break-even odds, so a row whose odds
+    sit below its break-even odds cannot be flipped by any capital. */
+export function farmEconomics(p: SnapshotProtocol, age: number | null, p10Expected: number, fitted: number, odds: number): FarmEconomics {
   const chain = chainOf(p);
   const gas = gasFor(chain);
   const capital = capitalFor(p);
@@ -1228,25 +1045,15 @@ export function farmEconomics(p: SnapshotProtocol, age: number | null, p10Expect
   const gasTotal = round2(gas + gas * weeks + gas);
   const hours = round2((5 + 15 + 10 * weeks + 15 + 10 + 5) / 60);
   const breakevenBps = p10Expected > 0 ? round4((gasTotal / p10Expected) * 10000) : 999999;
-  // $/hour at three stated capture shares of the P10 expected value: deliberately small,
-  // labelled assumptions, so the figures compare rows instead of promising an airdrop.
-  // The 0.1% figure is 100x the 0.001% one — it is shown beside the others precisely so
-  // nobody reads it as a forecast.
   const perHour = (share: number) => round2((share * p10Expected - gasTotal) / hours);
   const usdPerHour = perHour(0.00001);
-  // The verdict nets two costs against the P10: the gas bill as a share of the capital put in
-  // (gas drag), and as a share of the P10 expected value (breakeven). A row is FARM only when
-  // both are small; a row whose gas bill eats the position is SKIP, however large its value.
+  const breakevenOdds = fitted > 0 ? round6(gasTotal / (0.00001 * fitted)) : 999;
   const gasDrag = gasTotal / capital;
   const verdict: FarmEconomics['verdict'] =
-    gasDrag <= 0.1 && breakevenBps <= 1 ? 'FARM' : gasDrag <= 0.3 && breakevenBps <= 5 ? 'THIN' : 'SKIP';
-  // Capture breakeven: the share of the P10 a farmer must capture to cover gas at all.
+    odds >= breakevenOdds && gasDrag <= 0.1 ? 'FARM' : odds >= breakevenOdds && gasDrag <= 0.3 ? 'THIN' : 'SKIP';
   const captureBreakevenPct = p10Expected > 0 ? round6((gasTotal / p10Expected) * 100) : 999999;
-  // Capital that flips the verdict: raising capital only fixes the gas drag, never the
-  // breakeven, so a row flips only when its breakeven already passes (<= 1 bp) and its
-  // capital is below gasTotal / 10%. Otherwise no capital flips it.
   const capitalFlipUsd: number | null =
-    breakevenBps <= 1 && capital < gasTotal / 0.1 ? Math.ceil(gasTotal / 0.1) : null;
+    odds >= breakevenOdds && capital < gasTotal / 0.1 ? Math.ceil(gasTotal / 0.1) : null;
   return {
     capital_usd: capital,
     gas_total_usd: gasTotal,
@@ -1256,6 +1063,8 @@ export function farmEconomics(p: SnapshotProtocol, age: number | null, p10Expect
     usd_per_hour_01pct: perHour(0.0001),
     usd_per_hour_10pct: perHour(0.001),
     capture_breakeven_pct: captureBreakevenPct,
+    breakeven_odds: breakevenOdds,
+    gas_drag_pct: round4(gasDrag * 100),
     capital_flip_usd: capitalFlipUsd,
     verdict,
   };
@@ -1264,9 +1073,9 @@ export function farmEconomics(p: SnapshotProtocol, age: number | null, p10Expect
 /**
  * A protocol's farm plan: seven steps, each an action with a cost and a time. The plan is derived
  * from the protocol's own record (category, chains, TVL, age), never from a hand-written list of names.
- * The last step states the verdict, netted on the P10 expected value.
+ * The last step states the verdict, netted on the P10 expected value and the break-even odds.
  */
-export function farmSteps(p: SnapshotProtocol, age: number | null, econ: FarmEconomics, p10Expected: number): FarmStep[] {
+export function farmSteps(p: SnapshotProtocol, age: number | null, econ: FarmEconomics, p10Expected: number, odds: number): FarmStep[] {
   const chain = chainOf(p);
   const capital = econ.capital_usd;
   const hold = holdDaysFor(age);
@@ -1281,7 +1090,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null, econ: FarmEco
     { text: secondActionFor(p, capital, chain), cost: `about ${gasStr} of gas`, time: '15 minutes' },
     { text: `Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes.`, cost: 'no fee to check, and never pay to claim', time: '10 minutes' },
     {
-      text: `Verdict: ${econ.verdict}. Breakeven is $${econ.gas_total_usd} of gas, ${econ.breakeven_bps} bps of the P10 expected value of $${Math.round(p10Expected).toLocaleString('en-US')} and ${Math.round((econ.gas_total_usd / econ.capital_usd) * 100)}% of the $${econ.capital_usd} capital; capture breakeven is ${econ.capture_breakeven_pct}% of the P10. $/hour over ${econ.hours} hours, labelled assumptions: $${econ.usd_per_hour} at 0.001% capture, $${econ.usd_per_hour_01pct} at 0.01%, $${econ.usd_per_hour_10pct} at 0.1%. ${econ.verdict === 'FARM' ? 'The capital is already enough for FARM.' : econ.capital_flip_usd === null ? 'No capital flips this verdict; the breakeven, not the gas drag, is the blocker.' : `Raising capital to $${econ.capital_flip_usd} would flip it to FARM.`} Write the wallet, dates and every transaction in a farm log.`,
+      text: `Verdict: ${econ.verdict}. Launch odds ${(odds * 100).toFixed(1)}% vs break-even odds ${(econ.breakeven_odds * 100).toFixed(1)}% (the odds at which 0.001% of the fitted value covers the $${econ.gas_total_usd} gas bill); gas drag ${econ.gas_drag_pct}% of the $${econ.capital_usd} capital; breakeven ${econ.breakeven_bps} bps of the P10 expected value of $${Math.round(p10Expected).toLocaleString('en-US')}; capture breakeven ${econ.capture_breakeven_pct}% of the P10. $/hour over ${econ.hours} hours, labelled assumptions: $${econ.usd_per_hour} at 0.001% capture, $${econ.usd_per_hour_01pct} at 0.01%, $${econ.usd_per_hour_10pct} at 0.1%. ${econ.verdict === 'FARM' ? 'The capital is already enough for FARM.' : econ.capital_flip_usd === null ? 'No capital flips this verdict; the odds are below the break-even odds.' : `Raising capital to $${econ.capital_flip_usd} would flip it to FARM.`} Write the wallet, dates and every transaction in a farm log.`,
       cost: 'nothing but the log',
       time: '5 minutes',
     },
@@ -1306,22 +1115,21 @@ export function liveRows(snapshot: Snapshot): LiveRow[] {
 }
 
 /** The protocols the board ranks, strongest first, with ranks 1..n. */
-export function buildBoard(snapshot: Snapshot): { board: BoardRow[]; model: ModelConstants; validation: Validation; audit: RadarData['audit'] } {
+export function buildBoard(snapshot: Snapshot): { board: BoardRow[]; model: ModelConstants; validation: Validation; audit: RadarData['audit']; cal_contains: number } {
   const { model, validation } = fitModel(snapshot);
   const asOf = snapshot.as_of;
   const comps = compsOf(snapshot);
 
-  // Bootstrap: 200 refits of the quadratic size curve on resampled comps, seeded and deterministic.
+  // Bootstrap: 200 refits of the fitted model on resampled comps, seeded and deterministic.
   const rng = mulberry32(BOOTSTRAP_SEED);
-  const refits: { intercept: number; slope: number; quad: number }[] = [];
+  const refits: FittedParams[] = [];
   for (let r = 0; r < BOOTSTRAP_REFITS; r++) {
     const sample: SnapshotProtocol[] = [];
     for (let i = 0; i < comps.length; i++) sample.push(comps[Math.floor(rng() * comps.length)]!);
-    const beta = fitOn(sample, FEATS['size+quad']!, asOf);
-    refits.push({ intercept: beta[0]!, slope: beta[1]!, quad: beta[2]! });
+    refits.push(fitStep(sample, PLUS_SIZE, asOf));
   }
-  // Conformal half-width from the leave-one-out residuals, as validation.conformal reports it.
-  const confHalfWidth = validation.conformal.half_width_log;
+  const calQ10 = validation.calibration.q10_log;
+  const calQ90 = validation.calibration.q90_log;
 
   const chosen = snapshot.protocols.filter((p) => isRankable(p));
   const excludedByReason: Record<string, number> = {};
@@ -1340,6 +1148,9 @@ export function buildBoard(snapshot: Snapshot): { board: BoardRow[]; model: Mode
     total: snapshot.protocols.length,
   };
 
+  // Each comp's fitted value, for the peers lists: same raw category, closest by fitted value.
+  const compFitted = comps.map((c) => ({ p: c, fitted: fittedValue(model, c) }));
+
   interface Scored {
     p: SnapshotProtocol;
     age: number | null;
@@ -1348,22 +1159,34 @@ export function buildBoard(snapshot: Snapshot): { board: BoardRow[]; model: Mode
     expected: number;
     p10: number;
     p90: number;
-    confP10: number;
-    confP90: number;
+    calLo: number;
+    calHi: number;
+    peers: Peer[];
   }
   const scored: Scored[] = chosen.map((p) => {
     const age = ageDays(asOf, p.listed_at);
-    const fitted = fittedValue(model, p.tvl_usd);
+    const fitted = fittedValue(model, p);
     const odds = launchOdds(model, age, p.tvl_usd, p.change_7d);
-    const fittedSamples = refits.map((b) => {
-      const lt = Math.log(p.tvl_usd);
-      return Math.exp(b.intercept + b.slope * lt + b.quad * lt * lt);
-    });
+    const fittedSamples = refits.map((b) => Math.exp(predictLog(b, p, PLUS_SIZE, asOf)));
     const p10 = quantile(fittedSamples, 0.1) * odds;
     const p90 = quantile(fittedSamples, 0.9) * odds;
-    const confP10 = fitted * Math.exp(-confHalfWidth) * odds;
-    const confP90 = fitted * Math.exp(confHalfWidth) * odds;
-    return { p, age, fitted, odds, expected: fitted * odds, p10, p90, confP10, confP90 };
+    const calLo = fitted * Math.exp(calQ10) * odds;
+    const calHi = fitted * Math.exp(calQ90) * odds;
+    const cat = p.category ?? 'Other';
+    const logF = Math.log(fitted);
+    const sameCat = compFitted
+      .filter((c) => (c.p.category ?? 'Other') === cat)
+      .map((c) => ({ c, d: Math.abs(Math.log(c.fitted) - logF) }))
+      .sort((a, b) => a.d - b.d);
+    const otherCat = compFitted
+      .filter((c) => (c.p.category ?? 'Other') !== cat)
+      .map((c) => ({ c, d: Math.abs(Math.log(c.fitted) - logF) }))
+      .sort((a, b) => a.d - b.d);
+    const peers: Peer[] = [
+      ...sameCat.slice(0, 8).map((x) => ({ slug: x.c.p.slug, name: x.c.p.name, fitted_value_usd: Math.max(1, Math.round(x.c.fitted)), same_category: true })),
+      ...otherCat.slice(0, Math.max(0, 8 - Math.min(8, sameCat.length))).map((x) => ({ slug: x.c.p.slug, name: x.c.p.name, fitted_value_usd: Math.max(1, Math.round(x.c.fitted)), same_category: false })),
+    ];
+    return { p, age, fitted, odds, expected: fitted * odds, p10, p90, calLo, calHi, peers };
   });
   scored.sort((a, b) => b.expected - a.expected || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
 
@@ -1371,18 +1194,15 @@ export function buildBoard(snapshot: Snapshot): { board: BoardRow[]; model: Mode
   const rankSamples: number[][] = scored.map(() => []);
   for (const b of refits) {
     const order = scored
-      .map((s, i) => {
-        const lt = Math.log(s.p.tvl_usd);
-        return { i, v: Math.exp(b.intercept + b.slope * lt + b.quad * lt * lt) * s.odds };
-      })
+      .map((s, i) => ({ i, v: Math.exp(predictLog(b, s.p, PLUS_SIZE, asOf)) * s.odds }))
       .sort((a, b2) => b2.v - a.v || (scored[a.i]!.p.slug < scored[b2.i]!.p.slug ? -1 : 1));
     order.forEach((o, pos) => rankSamples[o.i]!.push(pos + 1));
   }
 
   const board: BoardRow[] = scored.map((s, i) => {
     const p10Expected = s.p10;
-    const econ = farmEconomics(s.p, s.age, p10Expected);
-    const steps = farmSteps(s.p, s.age, econ, p10Expected).map(stepText);
+    const econ = farmEconomics(s.p, s.age, p10Expected, s.fitted, s.odds);
+    const steps = farmSteps(s.p, s.age, econ, p10Expected, s.odds).map(stepText);
     return {
       rank: i + 1,
       slug: s.p.slug,
@@ -1403,18 +1223,21 @@ export function buildBoard(snapshot: Snapshot): { board: BoardRow[]; model: Mode
         launch_odds: round4(s.odds),
         p10_usd: Math.max(1, Math.round(s.p10)),
         p90_usd: Math.max(1, Math.round(s.p90)),
-        conf_lo_usd: Math.max(1, Math.round(s.confP10)),
-        conf_hi_usd: Math.max(1, Math.round(s.confP90)),
+        cal_lo_usd: Math.max(1, Math.round(s.calLo)),
+        cal_hi_usd: Math.max(1, Math.round(s.calHi)),
         rank_low: Math.round(quantile(rankSamples[i]!, 0.1)),
         rank_high: Math.round(quantile(rankSamples[i]!, 0.9)),
         growth_pct: s.p.change_7d === null ? 0 : Math.min(120, Math.max(-60, s.p.change_7d)),
         age_days: s.age,
+        breakeven_odds: econ.breakeven_odds,
+        peers: s.peers,
       },
       farm: econ,
       farm_steps: steps,
     };
   });
-  return { board, model, validation, audit };
+  const calContains = board.filter((r) => r.model.cal_lo_usd <= r.model.p10_usd && r.model.cal_hi_usd >= r.model.p90_usd).length;
+  return { board, model, validation, audit, cal_contains: calContains };
 }
 
 /** A board row's compact form for data.js. */
@@ -1435,10 +1258,12 @@ export function radarRow(row: BoardRow): RadarRow {
     launch_odds: row.model.launch_odds,
     p10_usd: row.model.p10_usd,
     p90_usd: row.model.p90_usd,
-    conf_lo_usd: row.model.conf_lo_usd,
-    conf_hi_usd: row.model.conf_hi_usd,
+    cal_lo_usd: row.model.cal_lo_usd,
+    cal_hi_usd: row.model.cal_hi_usd,
     rank_low: row.model.rank_low,
     rank_high: row.model.rank_high,
+    breakeven_odds: row.model.breakeven_odds,
+    peers: row.model.peers,
     verdict: row.farm.verdict,
     capital_usd: row.farm.capital_usd,
     gas_total_usd: row.farm.gas_total_usd,
@@ -1453,49 +1278,18 @@ export function radarRow(row: BoardRow): RadarRow {
   };
 }
 
-/** The size curve as a chart: comps binned by log TVL (median log mcap per bin) plus the fitted curve. */
-function curveChart(snapshot: Snapshot, model: ModelConstants): RadarData['curve_chart'] {
-  const comps = compsOf(snapshot);
-  const lts = comps.map((p) => Math.log(p.tvl_usd));
-  const lo = Math.min(...lts);
-  const hi = Math.max(...lts);
-  const nBins = 8;
-  const bins: RadarData['curve_chart']['bins'] = [];
-  for (let i = 0; i < nBins; i++) {
-    const a = lo + ((hi - lo) * i) / nBins;
-    const b = lo + ((hi - lo) * (i + 1)) / nBins;
-    const inBin = comps.filter((p) => {
-      const lt = Math.log(p.tvl_usd);
-      return lt >= a && (i === nBins - 1 ? lt <= b : lt < b);
-    });
-    if (inBin.length === 0) continue;
-    bins.push({
-      log_tvl: round4(median(inBin.map((p) => Math.log(p.tvl_usd)))),
-      log_mcap: round4(median(inBin.map((p) => Math.log(p.mcap_usd!)))),
-      n: inBin.length,
-    });
-  }
-  const curve: RadarData['curve_chart']['curve'] = [];
-  for (let i = 0; i <= 24; i++) {
-    const lt = lo + ((hi - lo) * i) / 24;
-    curve.push({ log_tvl: round4(lt), log_mcap: round4(model.intercept + model.slope * lt + model.quad_coef * lt * lt) });
-  }
-  const points = comps.map((p) => ({ log_tvl: round4(Math.log(p.tvl_usd)), log_mcap: round4(Math.log(p.mcap_usd!)) }));
-  return { bins, curve, points };
-}
-
 /** Everything the dashboard renders, from the snapshot. */
-export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: RadarData } {
-  const { board, model, validation, audit } = buildBoard(snapshot);
+export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: RadarData; cal_contains: number } {
+  const { board, model, validation, audit, cal_contains } = buildBoard(snapshot);
   const live = liveRows(snapshot);
   const dropped = validation.ablation.filter((a) => !a.kept).map((a) => a.term);
   const checks: RadarData['checks'] = [
     { label: 'Watchlist covered', detail: `${snapshot.watchlist.length} / ${snapshot.watchlist.length} watchlist protocols on the board`, pass: board.filter((r) => snapshot.watchlist.includes(r.slug)).length === snapshot.watchlist.length },
     { label: 'Audit adds to 758', detail: `${audit.ranked} ranked + ${audit.live_token} live-token + ${audit.excluded} excluded = ${audit.total}`, pass: audit.ranked + audit.live_token + audit.excluded === audit.total },
-    { label: 'Size curve beats flat baseline (LOO)', detail: `median abs log error ${validation.quad.loo_median_abs_log_error} vs flat ${validation.flat_baseline.median_abs_log_error}`, pass: validation.quad.loo_median_abs_log_error < validation.flat_baseline.median_abs_log_error },
+    { label: 'Size curve beats flat baseline (LOO)', detail: `median abs log error ${validation.selected.loo_median_abs_log_error} vs flat ${validation.ablation[0]!.loo_median_abs_log_error}`, pass: validation.selected.loo_median_abs_log_error < validation.ablation[0]!.loo_median_abs_log_error },
     { label: 'Odds beat base rate (LOO Brier)', detail: `Brier ${validation.odds.brier_loo} vs base ${validation.odds.base_brier}`, pass: validation.odds.brier_loo < validation.odds.base_brier },
-    { label: 'Quad kept, other terms refused', detail: `size+quad kept; ${dropped.length} terms dropped (see the table below)`, pass: (validation.ablation.find((a) => a.term === 'size+quad')?.kept ?? false) && dropped.length === validation.ablation.length - 1 },
-    { label: 'Placebo control refused', detail: 'seeded noise term failed both blind tests, as a real term must not', pass: (validation.ablation.find((a) => a.term === 'size+placebo')?.kept ?? false) === false && (validation.ablation.find((a) => a.term === 'quad+placebo')?.kept ?? false) === false },
+    { label: 'Size elasticity kept, growth refused', detail: `+size kept; ${dropped.length} terms dropped (see the table below)`, pass: (validation.ablation.find((a) => a.term === '+size elasticity')?.kept ?? false) && dropped.length === validation.ablation.length - 2 },
+    { label: 'Calibration band contains the bootstrap range', detail: `${cal_contains} / ${board.length} rows`, pass: cal_contains === board.length },
   ];
   const radar: RadarData = {
     as_of: snapshot.as_of,
@@ -1512,9 +1306,8 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     watchlist_slugs: snapshot.watchlist,
     rows: board.map(radarRow),
     live,
-    curve_chart: curveChart(snapshot, model),
   };
-  return { board, radar };
+  return { board, radar, cal_contains };
 }
 
 /** The snapshot out of a file's text, refused unless it is the shape the model scores. */

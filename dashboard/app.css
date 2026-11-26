@@ -38,11 +38,11 @@ p { margin: 0; }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--accent); }
-.skip {
+a.skip {
   position: absolute; left: -9999px; top: 0; padding: var(--step-2) var(--step-4);
   background: var(--surface); border: 1px solid var(--border); z-index: 20;
 }
-.skip:focus { left: var(--step-4); top: var(--step-4); }
+a.skip:focus { left: var(--step-4); top: var(--step-4); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .shell { max-width: 1320px; margin: 0 auto; padding: var(--step-4) var(--step-6) var(--step-7); }
@@ -131,7 +131,6 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 16
 @media (max-width: 900px) {
   .shell { padding: var(--step-4); }
   .lede { grid-template-columns: 1fr; gap: var(--step-4); }
-  .strip { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
   .facts { border-left: 0; border-top: 1px solid var(--border); padding-left: 0; padding-top: var(--step-4); }
   .field input { min-width: 0; width: 100%; }
 }
@@ -139,40 +138,7 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 16
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
 
-/* radar-9 additions: size-curve chart (slimmed in v5 to make room for the honesty panel). */
-.chart { margin: var(--step-2) 0; padding: var(--step-2) var(--step-5); }
-.chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--step-4); flex-wrap: wrap; }
-.chart-head .sub { max-width: 62ch; }
-.chart-body { margin-top: var(--step-2); }
-.chart-body svg { width: 100%; height: auto; display: block; }
-.chart-body .axis { font: 11px var(--font-num); fill: var(--muted); }
-.chart-body .grid { stroke: var(--border); stroke-width: 1; }
-
-/* v5: honesty panel — the claim / don't-claim split, readable in the board screenshot. */
-.honesty { margin-top: var(--step-2); padding: var(--step-2) var(--step-5); display: grid; gap: var(--step-2); }
-.honesty-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--step-4); flex-wrap: wrap; }
-.honesty-head .sub { max-width: 62ch; }
-.honesty-cols { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.15fr) 200px; gap: var(--step-4); }
-.honesty-col { display: grid; gap: var(--step-1); align-content: start; }
-.honesty-col p { color: var(--muted); font-size: 12px; line-height: 1.45; }
-.claim-h { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
-.claim-h.dont { color: var(--negative); }
-.honesty-hist { display: grid; gap: var(--step-1); align-content: start; }
-.hist-body svg { width: 100%; height: auto; display: block; }
-.hist-body .axis { font: 10px var(--font-num); fill: var(--muted); }
-
-/* v6: tools panel — sandbox, compare, export. Reuses .panel/.field/.equation/.button. */
-.tools { margin-top: var(--step-4); padding: var(--step-5); display: grid; gap: var(--step-3); }
-.tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--step-4); }
-.tool { display: grid; gap: var(--step-2); align-content: start; }
-.tool .field input, .tool .field select { min-width: 0; width: 100%; }
-.tool .equation { margin-top: var(--step-2); }
-
-/* radar-6 additions: integrity strip, verdict badges, ablation and odds tables. */
-.strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--step-3); padding: 6px 0; border-top: 1px solid var(--border); }
-.check { display: flex; gap: var(--step-2); align-items: flex-start; padding: 6px var(--step-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-control); }
-.check b { display: block; font-size: 12px; }
-.check .sub { display: block; margin-top: 2px; font-size: 11px; line-height: 1.35; }
+/* radar-10: verdict badges, ablation and odds tables. */
 .pass { color: var(--accent); font-family: var(--font-num); font-size: 12px; font-weight: 700; }
 .fail { color: var(--negative); font-family: var(--font-num); font-size: 12px; font-weight: 700; }
 .verdict { display: inline-block; min-width: 52px; text-align: center; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
@@ -180,5 +146,5 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 16
 .verdict.thin { background: #e0a63c; color: #241a05; }
 .verdict.skip { background: #2a3a32; color: #c7d6cd; }
 .ablation { display: grid; gap: var(--step-2); margin-top: var(--step-2); }
-.ablation-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: var(--step-3); align-items: baseline; padding: var(--step-2) 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.ablation-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: var(--step-3); align-items: baseline; padding: var(--step-2) 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .model h3 { margin-top: var(--step-4); }
