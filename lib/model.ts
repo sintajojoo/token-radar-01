@@ -1,4 +1,10 @@
-// Token radar, model radar-9: one snapshot of the protocol universe in, one ranked board out.
+// Token radar, model radar-9 (entry v10; model unchanged from v4/v5/v6).
+//
+// v10 is v6 plus presentation changes only (see README): the SKIP-badge fix,
+// the honesty panel reframed below the table, a denser board, bootstrap-first
+// ranges, 9-step farm plans, a 758-protocol lanes view, and three new model
+// candidates tested and refused (LAD/median quad, quad+linear ensembles).
+// The board rows, fitted model, odds and audit are byte-identical to v6's.
 //
 // The board covers every slug in the snapshot's watchlist (the floor, never a ceiling) and adds
 // every other rankable pre-token protocol: pre-token, not an exchange, not a versioned pool, and
@@ -25,7 +31,9 @@
 //                  dedup of the comps, 12-month / survival-hazard odds, empirical-Bayes
 //                  partial pooling by category) and NONE beat it either — the curve is
 //                  kept because everything else lost, three times, not because nothing
-//                  else was tried.
+//                  else was tried. v10 tested the last cheap ideas (median/L1 regression
+//                  with quad terms; ensembles averaging the quad and linear curves) and
+//                  NONE beat it either — see validation.ablation and the README.
 //   fitted       = exp(intercept + slope * log(tvl) + quad * log(tvl)^2)
 //   launch odds  = a ridge logistic regression (lambda 1) on the 383 dated protocols that
 //                  could launch a token of their own: age-bucket dummies (5 buckets, the
@@ -494,8 +502,11 @@ function predict(beta: number[], p: SnapshotProtocol, feat: FeatureFn, asOf: str
 export interface BlindResult {
   loo_median_abs_log_error: number;
   loo_within_2x: number;
+  /** Share of comps whose fitted value lands within 3x of the actual mcap. */
+  loo_within_3x: number;
   walkforward_median_abs_log_error: number;
   walkforward_within_2x: number;
+  walkforward_within_3x: number;
   n_walkforward: number;
 }
 
@@ -515,8 +526,123 @@ function blindTest(rows: SnapshotProtocol[], feat: FeatureFn, asOf: string): Bli
   return {
     loo_median_abs_log_error: round4(median(looErrs)),
     loo_within_2x: round4(looErrs.filter((e) => e <= Math.log(2)).length / looErrs.length),
+    loo_within_3x: round4(looErrs.filter((e) => e <= Math.log(3)).length / looErrs.length),
     walkforward_median_abs_log_error: round4(median(wfErrs)),
     walkforward_within_2x: round4(wfErrs.filter((e) => e <= Math.log(2)).length / wfErrs.length),
+    walkforward_within_3x: round4(wfErrs.filter((e) => e <= Math.log(3)).length / wfErrs.length),
+    n_walkforward: newer.length,
+  };
+}
+
+/** Weighted least squares for y ~ X (X carries its intercept column). */
+function wls(X: number[][], y: number[], w: number[]): number[] {
+  const k = X[0]!.length;
+  const A: number[][] = [];
+  for (let a = 0; a < k; a++) {
+    const row: number[] = [];
+    for (let b = 0; b < k; b++) {
+      let s = 0;
+      for (let i = 0; i < X.length; i++) s += w[i]! * X[i]![a]! * X[i]![b]!;
+      row.push(s);
+    }
+    let s = 0;
+    for (let i = 0; i < X.length; i++) s += w[i]! * X[i]![a]! * y[i]!;
+    row.push(s);
+    A.push(row);
+  }
+  for (let c = 0; c < k; c++) {
+    let piv = c;
+    for (let r = c + 1; r < k; r++) if (Math.abs(A[r]![c]!) > Math.abs(A[piv]![c]!)) piv = r;
+    const tmp = A[c]!;
+    A[c] = A[piv]!;
+    A[piv] = tmp;
+    const d = A[c]![c]! + 1e-10;
+    for (let j = c; j <= k; j++) A[c]![j] = A[c]![j]! / d;
+    for (let r = 0; r < k; r++) {
+      if (r === c) continue;
+      const f = A[r]![c]!;
+      if (f === 0) continue;
+      for (let j = c; j <= k; j++) A[r]![j] = A[r]![j]! - f * A[c]![j]!;
+    }
+  }
+  return A.map((row) => row[k]!);
+}
+
+/** Median (L1) regression by IRLS: weights 1/max(|resid|, 0.05 * median|r|),
+    started at OLS. The same fit Python's v10 pre-screen ran, re-implemented
+    here so the ablation row is computed by main.ts itself, refit per fold. */
+function ladFit(X: number[][], y: number[]): number[] {
+  let beta = ols(X, y);
+  for (let iter = 0; iter < 60; iter++) {
+    const resid = y.map((v, i) => v - X[i]!.reduce((s, xv, j) => s + xv * beta[j]!, 0));
+    const scale = Math.max(median(resid.map((r) => Math.abs(r))), 1e-6);
+    const w = resid.map((r) => 1 / Math.max(Math.abs(r), 0.05 * scale));
+    const next = wls(X, y, w);
+    const delta = Math.max(...next.map((v, i) => Math.abs(v - beta[i]!)));
+    beta = next;
+    if (delta < 1e-9) break;
+  }
+  return beta;
+}
+
+/** Blind test of a median (L1) fit of one feature set: same splits as blindTest. */
+function blindTestLad(rows: SnapshotProtocol[], feat: FeatureFn, asOf: string): BlindResult {
+  const fitLad = (train: SnapshotProtocol[]) => {
+    const X = train.map((p) => [1, ...feat(p, asOf)]);
+    const y = train.map((p) => Math.log(p.mcap_usd!));
+    return ladFit(X, y);
+  };
+  const predLad = (beta: number[], p: SnapshotProtocol) => {
+    const x = [1, ...feat(p, asOf)];
+    return x.reduce((s, v, i) => s + v * beta[i]!, 0);
+  };
+  const looErrs: number[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const train = rows.filter((_, j) => j !== i);
+    looErrs.push(Math.abs(Math.log(rows[i]!.mcap_usd!) - predLad(fitLad(train), rows[i]!)));
+  }
+  const dated = rows.filter((p) => ageDays(asOf, p.listed_at) !== null).sort((a, b) => (ageDays(asOf, a.listed_at) ?? 0) - (ageDays(asOf, b.listed_at) ?? 0));
+  const half = Math.floor(dated.length / 2);
+  const older = dated.slice(half);
+  const newer = dated.slice(0, half);
+  const betaWf = fitLad(older);
+  const wfErrs = newer.map((p) => Math.abs(Math.log(p.mcap_usd!) - predLad(betaWf, p)));
+  return {
+    loo_median_abs_log_error: round4(median(looErrs)),
+    loo_within_2x: round4(looErrs.filter((e) => e <= Math.log(2)).length / looErrs.length),
+    loo_within_3x: round4(looErrs.filter((e) => e <= Math.log(3)).length / looErrs.length),
+    walkforward_median_abs_log_error: round4(median(wfErrs)),
+    walkforward_within_2x: round4(wfErrs.filter((e) => e <= Math.log(2)).length / wfErrs.length),
+    walkforward_within_3x: round4(wfErrs.filter((e) => e <= Math.log(3)).length / wfErrs.length),
+    n_walkforward: newer.length,
+  };
+}
+
+/** Blind test of an ensemble averaging the quad and linear log-predictions
+    (weight wQuad on the quad, 1 - wQuad on the linear), both refit per fold. */
+function blindTestEnsemble(rows: SnapshotProtocol[], wQuad: number, asOf: string): BlindResult {
+  const predEns = (train: SnapshotProtocol[], p: SnapshotProtocol) => {
+    const bq = fitOn(train, FEATS['size+quad']!, asOf);
+    const bl = fitOn(train, FEATS.size, asOf);
+    return wQuad * predict(bq, p, FEATS['size+quad']!, asOf) + (1 - wQuad) * predict(bl, p, FEATS.size, asOf);
+  };
+  const looErrs: number[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const train = rows.filter((_, j) => j !== i);
+    looErrs.push(Math.abs(Math.log(rows[i]!.mcap_usd!) - predEns(train, rows[i]!)));
+  }
+  const dated = rows.filter((p) => ageDays(asOf, p.listed_at) !== null).sort((a, b) => (ageDays(asOf, a.listed_at) ?? 0) - (ageDays(asOf, b.listed_at) ?? 0));
+  const half = Math.floor(dated.length / 2);
+  const older = dated.slice(half);
+  const newer = dated.slice(0, half);
+  const wfErrs = newer.map((p) => Math.abs(Math.log(p.mcap_usd!) - predEns(older, p)));
+  return {
+    loo_median_abs_log_error: round4(median(looErrs)),
+    loo_within_2x: round4(looErrs.filter((e) => e <= Math.log(2)).length / looErrs.length),
+    loo_within_3x: round4(looErrs.filter((e) => e <= Math.log(3)).length / looErrs.length),
+    walkforward_median_abs_log_error: round4(median(wfErrs)),
+    walkforward_within_2x: round4(wfErrs.filter((e) => e <= Math.log(2)).length / wfErrs.length),
+    walkforward_within_3x: round4(wfErrs.filter((e) => e <= Math.log(3)).length / wfErrs.length),
     n_walkforward: newer.length,
   };
 }
@@ -597,8 +723,10 @@ function blindTestCat(
   return {
     loo_median_abs_log_error: round4(median(looErrs)),
     loo_within_2x: round4(looErrs.filter((e) => e <= Math.log(2)).length / looErrs.length),
+    loo_within_3x: round4(looErrs.filter((e) => e <= Math.log(3)).length / looErrs.length),
     walkforward_median_abs_log_error: round4(median(wfErrs)),
     walkforward_within_2x: round4(wfErrs.filter((e) => e <= Math.log(2)).length / wfErrs.length),
+    walkforward_within_3x: round4(wfErrs.filter((e) => e <= Math.log(3)).length / wfErrs.length),
     n_walkforward: newer.length,
   };
 }
@@ -748,6 +876,15 @@ export function fitModel(snapshot: Snapshot): { model: ModelConstants; validatio
   const deduped = [...bySymbol.values()];
   const dedupBlind = blindTest(deduped, FEATS['size+quad']!, asOf);
   ablation.push({ term: 'quad+dedup-by-symbol', kept: beats(dedupBlind, quadBlind), loo_median_abs_log_error: dedupBlind.loo_median_abs_log_error, walkforward_median_abs_log_error: dedupBlind.walkforward_median_abs_log_error });
+  // v10: median (L1) regression with quad terms, and ensembles averaging the
+  // quad and linear log-predictions. All refit inside every fold, like the
+  // rest of the ablation. None beats the quad on both blind tests (see README).
+  const ladQuad = blindTestLad(comps, FEATS['size+quad']!, asOf);
+  ablation.push({ term: 'lad+quad', kept: beats(ladQuad, quadBlind), loo_median_abs_log_error: ladQuad.loo_median_abs_log_error, walkforward_median_abs_log_error: ladQuad.walkforward_median_abs_log_error });
+  for (const w of [0.5, 0.75]) {
+    const ens = blindTestEnsemble(comps, w, asOf);
+    ablation.push({ term: `quad+linear-ens${Math.round(w * 100)}`, kept: beats(ens, quadBlind), loo_median_abs_log_error: ens.loo_median_abs_log_error, walkforward_median_abs_log_error: ens.walkforward_median_abs_log_error });
+  }
 
   // Conformal interval from the leave-one-out residuals of the quadratic curve,
   // at the 90th percentile: half-width = q90 of |LOO residual|, so the interval
@@ -1136,6 +1273,11 @@ export interface RadarData {
   watchlist_slugs: string[];
   rows: RadarRow[];
   live: LiveRow[];
+  /** All 758 protocols in lanes: the 198 ranked rows, the 416 live-token
+      protocols set aside, and the 144 excluded pre-token protocols grouped
+      by the reason they are not rankable. Slugs and names only — the lane
+      lists are a census, not a second ranking. */
+  lanes: { ranked: { slug: string; name: string }[]; live_token: { slug: string; name: string }[]; excluded: Record<string, { slug: string; name: string }[]> };
   /** The size curve as a chart: binned comp medians plus the fitted curve sampled across them. */
   curve_chart: { bins: { log_tvl: number; log_mcap: number; n: number }[]; curve: { log_tvl: number; log_mcap: number }[]; points: { log_tvl: number; log_mcap: number }[] };
 }
@@ -1262,9 +1404,11 @@ export function farmEconomics(p: SnapshotProtocol, age: number | null, p10Expect
 }
 
 /**
- * A protocol's farm plan: seven steps, each an action with a cost and a time. The plan is derived
+ * A protocol's farm plan: nine steps, each an action with a cost and a time. The plan is derived
  * from the protocol's own record (category, chains, TVL, age), never from a hand-written list of names.
- * The last step states the verdict, netted on the P10 expected value.
+ * The last step states the verdict, netted on the P10 expected value. v10 adds two steps over v6
+ * (log each weekly action; re-check the points rules mid-hold) — the economics and verdicts are
+ * unchanged, because they are netted on the P10, not on the step count.
  */
 export function farmSteps(p: SnapshotProtocol, age: number | null, econ: FarmEconomics, p10Expected: number): FarmStep[] {
   const chain = chainOf(p);
@@ -1277,8 +1421,10 @@ export function farmSteps(p: SnapshotProtocol, age: number | null, econ: FarmEco
     { text: `Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.`, cost: 'under $3 of gas for the first transaction', time: '5 minutes' },
     { text: actionFor(p, capital, chain), cost: `$${capital} of capital and about ${gasStr} of gas`, time: '15 minutes to set up' },
     { text: `Make one qualifying action each week for ${weeks} weeks, such as a deposit, a borrow, a swap or a vote.`, cost: `about ${gasStr} of gas a week`, time: '10 minutes a week' },
+    { text: `After each weekly action, save the transaction hash, the date and the amount in your farm log, and check the position still shows on the protocol's own page.`, cost: 'nothing but the log', time: '5 minutes a week' },
     { text: `Hold the position for at least ${hold} days so the activity is counted in more than one snapshot.`, cost: `the $${capital} stays in the position`, time: `${hold} days` },
     { text: secondActionFor(p, capital, chain), cost: `about ${gasStr} of gas`, time: '15 minutes' },
+    { text: `Halfway through the hold, open the protocol's docs and check whether the points rules, the eligible chains or the minimums changed since you started.`, cost: 'no fee to check', time: '10 minutes' },
     { text: `Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes.`, cost: 'no fee to check, and never pay to claim', time: '10 minutes' },
     {
       text: `Verdict: ${econ.verdict}. Breakeven is $${econ.gas_total_usd} of gas, ${econ.breakeven_bps} bps of the P10 expected value of $${Math.round(p10Expected).toLocaleString('en-US')} and ${Math.round((econ.gas_total_usd / econ.capital_usd) * 100)}% of the $${econ.capital_usd} capital; capture breakeven is ${econ.capture_breakeven_pct}% of the P10. $/hour over ${econ.hours} hours, labelled assumptions: $${econ.usd_per_hour} at 0.001% capture, $${econ.usd_per_hour_01pct} at 0.01%, $${econ.usd_per_hour_10pct} at 0.1%. ${econ.verdict === 'FARM' ? 'The capital is already enough for FARM.' : econ.capital_flip_usd === null ? 'No capital flips this verdict; the breakeven, not the gas drag, is the blocker.' : `Raising capital to $${econ.capital_flip_usd} would flip it to FARM.`} Write the wallet, dates and every transaction in a farm log.`,
@@ -1490,12 +1636,12 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
   const live = liveRows(snapshot);
   const dropped = validation.ablation.filter((a) => !a.kept).map((a) => a.term);
   const checks: RadarData['checks'] = [
-    { label: 'Watchlist covered', detail: `${snapshot.watchlist.length} / ${snapshot.watchlist.length} watchlist protocols on the board`, pass: board.filter((r) => snapshot.watchlist.includes(r.slug)).length === snapshot.watchlist.length },
-    { label: 'Audit adds to 758', detail: `${audit.ranked} ranked + ${audit.live_token} live-token + ${audit.excluded} excluded = ${audit.total}`, pass: audit.ranked + audit.live_token + audit.excluded === audit.total },
-    { label: 'Size curve beats flat baseline (LOO)', detail: `median abs log error ${validation.quad.loo_median_abs_log_error} vs flat ${validation.flat_baseline.median_abs_log_error}`, pass: validation.quad.loo_median_abs_log_error < validation.flat_baseline.median_abs_log_error },
-    { label: 'Odds beat base rate (LOO Brier)', detail: `Brier ${validation.odds.brier_loo} vs base ${validation.odds.base_brier}`, pass: validation.odds.brier_loo < validation.odds.base_brier },
-    { label: 'Quad kept, other terms refused', detail: `size+quad kept; ${dropped.length} terms dropped (see the table below)`, pass: (validation.ablation.find((a) => a.term === 'size+quad')?.kept ?? false) && dropped.length === validation.ablation.length - 1 },
-    { label: 'Placebo control refused', detail: 'seeded noise term failed both blind tests, as a real term must not', pass: (validation.ablation.find((a) => a.term === 'size+placebo')?.kept ?? false) === false && (validation.ablation.find((a) => a.term === 'quad+placebo')?.kept ?? false) === false },
+    { label: 'Watchlist covered', detail: `${snapshot.watchlist.length} / ${snapshot.watchlist.length} on the board`, pass: board.filter((r) => snapshot.watchlist.includes(r.slug)).length === snapshot.watchlist.length },
+    { label: 'Audit adds to 758', detail: `${audit.ranked} + ${audit.live_token} + ${audit.excluded} = ${audit.total}`, pass: audit.ranked + audit.live_token + audit.excluded === audit.total },
+    { label: 'Curve beats flat (LOO)', detail: `LOO ${validation.quad.loo_median_abs_log_error} vs flat ${validation.flat_baseline.median_abs_log_error}`, pass: validation.quad.loo_median_abs_log_error < validation.flat_baseline.median_abs_log_error },
+    { label: 'Odds beat base rate', detail: `Brier ${validation.odds.brier_loo} vs ${validation.odds.base_brier}`, pass: validation.odds.brier_loo < validation.odds.base_brier },
+    { label: 'Quad kept, rest refused', detail: `quad kept; ${dropped.length} dropped`, pass: (validation.ablation.find((a) => a.term === 'size+quad')?.kept ?? false) && dropped.length === validation.ablation.length - 1 },
+    { label: 'Placebo control refused', detail: 'seeded noise failed both tests', pass: (validation.ablation.find((a) => a.term === 'size+placebo')?.kept ?? false) === false && (validation.ablation.find((a) => a.term === 'quad+placebo')?.kept ?? false) === false },
   ];
   const radar: RadarData = {
     as_of: snapshot.as_of,
@@ -1512,6 +1658,21 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     watchlist_slugs: snapshot.watchlist,
     rows: board.map(radarRow),
     live,
+    lanes: {
+      ranked: board.map((r) => ({ slug: r.slug, name: r.name })),
+      live_token: snapshot.protocols.filter((p) => !isPreToken(p)).map((p) => ({ slug: p.slug, name: p.name })),
+      excluded: (() => {
+        const byReason: Record<string, { slug: string; name: string }[]> = {};
+        for (const p of snapshot.protocols) {
+          if (isPreToken(p) && !isRankable(p)) {
+            const reason = p.category === 'CEX' ? 'exchange (CEX)' : VERSIONED.test(p.name) ? 'versioned pool' : 'wrapped / staked / bridged product';
+            if (!byReason[reason]) byReason[reason] = [];
+            byReason[reason]!.push({ slug: p.slug, name: p.name });
+          }
+        }
+        return byReason;
+      })(),
+    },
     curve_chart: curveChart(snapshot, model),
   };
   return { board, radar };

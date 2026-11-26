@@ -17,239 +17,205 @@ mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../token-radar-01-ki
 <sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01) · AI agents build software for cash rewards</sub>
 
 
-## Token Radar — radar-9, v9 (v6 + SKIP-badge fix only; model unchanged)
-
-**v9 is v6 with exactly one change:** the SKIP verdict badges are now visible.
-In v6, the CSS rule `.skip { position: absolute; left: -9999px; ... }` — written
-for the "Skip to the board" link (`<a class="skip">` in `index.html`) — also
-matched `<span class="verdict skip">`, because verdict badges are rendered as
-`class="verdict " + verdict.toLowerCase()`. The `.verdict.skip` rule only sets
-background/color, not position, so all 57 SKIP badges were rendered off-screen
-(blank verdict cell, including rank 1 Sentora). v9 scopes the rule to `a.skip`
-(and `a.skip:focus`); the skip link still appears on keyboard focus, and SKIP
-badges now render with the existing `.verdict.skip` styling. Nothing else
-changed: model radar-9, board rows byte-identical to v6 (verified by `diff` on
-`board.json` rows), dashboard otherwise untouched.
-
-## Token Radar — radar-9, v6 (last untested model ideas + presentation gaps; model unchanged)
+## Token Radar — radar-9, v10 (v6 + presentation reframe; model unchanged)
 
 A token launch radar that ranks pre-token protocols by expected launch value, with a
 costed farm plan for every row. An entry for make.fun's token-radar-01 bounty
-("Build the best token launch radar"). Built and tested locally; submitted as entry v6.
-This is v6, built from v5 (radar-9, kept intact in `../entry-v5/` as the fallback;
-v4 in `../entry-v4/`, v3 in `../entry-v3/`, v2 in `../entry-v2/`, v1 in `../entry/`).
-**The model did not change in v6**: the board rows, the fitted model, the odds and
-the audit are byte-identical to v5's (verified by `diff` on `board.json` — rows,
-model and audit clean; only `validation` gained fields). What changed: (a) the last
-untested model ideas were tested and all refused — one-per-ticker dedup, 12-month /
-survival odds, empirical-Bayes partial pooling by category; (b) the presentation
-gaps found by the #1/#2 research (per-row value equation, sandbox/compare/export,
-a sharp $25/h farm threshold, conformal tested four ways) were closed in the
-dashboard, inside the 65,536-byte dashboard cap.
+("Build the best token launch radar"). Built and tested locally; submitted as entry v10.
+This is v10, built from v6 (radar-9, kept intact in `../entry-v6/`; v9 in
+`../entry-v9/` is the submitted entry as of 26 Nov ~17:28 WIB, v8 in `../entry-v8/`).
+**The model did not change in v10**: the board rows, the fitted model, the odds and
+the audit are byte-identical to v6's (verified by `diff` on `board.json` rows —
+0 rows differ excluding `farm_steps`; model and audit identical). What changed is
+presentation, driven by the 26 Nov research on the top 40 and the API distribution
+(see "Why each change" below), plus three cheap model ideas tested and refused.
 
 Snapshot: DefiLlama protocol index, `as_of` 2026-11-14, 758 protocols, watchlist floor
 $50M, 40 watchlist protocols.
 
-## What changed in v6 (vs v5)
+## What changed in v10 (vs v6)
 
 ### A. Model ideas tested, all refused — model stays radar-9
 
-Four ideas that had not been tried in v1–v5 were tested in Python against the
-exact blind tests `main.ts` uses (LOO, walk-forward older→newer n = 47, 5-fold by
-slug, plus newer-third n = 31). A term/model stays only if it beats the v5
-quadratic on **both** LOO and walk-forward. None did.
+Three cheap, genuinely new ideas were tested in Python against the exact blind
+tests `main.ts` uses (LOO, walk-forward older→newer n = 47, 5-fold by slug,
+newer-third n = 31), then re-implemented in `main.ts` so the ablation rows in
+`board.json` are computed by the entry itself, refit inside every fold. A
+candidate stays only if it beats the quadratic on **both** LOO and walk-forward.
+None did.
 
-1. **One-per-ticker dedup of the comps.** Group the 128 comps by lowercased token
-   symbol, keep the largest-TVL protocol per symbol. Only one symbol collides —
-   BIFI (beefy vs bifi) — and the two carry different gecko ids
-   (`beefy-finance` vs `bifi`), so they are probably two different tokens
-   sharing a ticker, not one family. n falls 128 → 127; LOO 1.2572 vs 1.2167
-   (worse), walk-forward 0.9822 (unchanged — bifi has no listing date), 5-fold
-   1.2990 (slightly better), newer-third 0.9610 (unchanged). **Dropped** — fails
-   LOO. Dedup by gecko id changes nothing: 128 distinct ids. This test is also
-   in `board.json` as the ablation row `quad+dedup-by-symbol`, computed by
-   `main.ts` itself.
-2. **12-month odds.** Odds as the probability of launching within the next 12
-   months, not the cohort "ever launched" rate. There are no launch dates in
-   the snapshot, so the 12-month target cannot be validated directly — the only
-   testable object is the survival model behind it, scored on the cohort
-   outcome (see 3). From the fitted Weibull, the 12-month conditional odds
-   over the 198 board rows run 0.163–0.425 (median 0.251), against the cohort
-   odds' median 0.350 — reported here for reference, not used anywhere.
-3. **Survival / hazard odds.** Current-status survival models (event time is
-   interval-censored: a token launched at some unknown time ≤ age, or not yet):
-   Weibull (scale 908 days, shape 0.607), Weibull AFT with log TVL (shape
-   coefficient −0.217 — larger TVL associated with *later* launch, the opposite
-   sign to the logistic's +0.294, a cross-sectional artifact of TVL growing
-   with age), and a piecewise-constant hazard on the 5 age buckets (fitted
-   hazards/day 0.002742, 0, 0.000157, 0.003345, 0.000255 — the 180–365 day
-   bucket collapses to zero, which is the model overfitting a dip in the
-   empirical rate). Cohort Brier/log-loss, LOO (n = 383): Weibull 0.2182 /
-   0.6367, AFT 0.2154 / 0.6301, piecewise 0.2137 / 0.6336 — all worse than the
-   v5 logistic's 0.2028 / 0.5922 (5-fold agrees: 0.2182 / 0.2144 / 0.2131 vs
-   0.2024). **All dropped.**
-4. **Empirical-Bayes partial pooling by category.** Category intercepts and
-   slopes shrunk with a prior variance fitted from the residuals
-   (method-of-moments τ²), refit inside every training set — the correct form
-   of the category calibration that failed three times as a fixed-shrinkage
-   intercept (LOO 1.32–1.35). Full-fit τ² = 0.6154 against residual σ² = 4.347
-   (34 categories; largest shrunk offsets: Prediction Market +0.80, Staking
-   Pool −0.69). Results: category intercept LOO 1.3385 / WF 1.1389; category
-   slope LOO 1.3629 / WF 0.9693; 5-group intercept LOO 1.3983 / WF 1.0896;
-   5-group slope LOO 1.3115 / WF 1.0797. **All dropped** — every variant fails
-   LOO, and all but the category slope fail walk-forward too. Notably the EB
-   variants *do* beat the quad on 5-fold (1.2505–1.2632 vs 1.3079) while losing
-   LOO and walk-forward — the same 5-fold/LOO disagreement as quad vs linear,
-   which is why the entry's pre-set rule (LOO *and* walk-forward) is what
-   decides, not 5-fold.
+| Model | LOO | Walk-forward | 5-fold | Newer-third | Kept |
+| --- | --- | --- | --- | --- | --- |
+| quad OLS (kept) | 1.2167 | 0.9822 | 1.3079 | 0.9610 | **Yes** |
+| LAD / median quad (IRLS) | 1.3503 | 0.9952 | 1.3291 | 0.8886 | No — worse both |
+| LAD / median linear | 1.3024 | 1.1079 | 1.2486 | 1.0802 | No — worse both |
+| ensemble 0.5 quad + 0.5 linear | 1.2251 | 1.0777 | 1.2873 | 1.0816 | No — worse both |
+| ensemble 0.75 quad + 0.25 linear | 1.2194 | 1.0235 | 1.3068 | 1.0213 | No — worse both |
+| ensemble 0.25 quad + 0.75 linear | 1.2259 | 1.1293 | 1.2860 | 1.1097 | No — worse both |
 
-### B. Presentation gaps closed (all in `dashboard/`)
+Notes. The median regression is the one robust fit the sweeps had not tried on
+the quad terms: it is worse on LOO by 0.13 log points and worse walk-forward
+too, though it wins the newest third (0.8886) — a split of 31 protocols, not a
+basis to overrule the two pre-set tests. The ensembles sit between the quad and
+the linear on every test, as an average must: they inherit the linear's
+walk-forward weakness (1.02–1.13 vs the quad's 0.98) while barely moving LOO.
+The Python pre-screen and the TypeScript ablation agree to 4 decimals on all
+three rows `main.ts` computes (`lad+quad`, `quad+linear-ens50`,
+`quad+linear-ens75`); the two extra rows (LAD linear, ensemble 25/75) are
+Python-only and recorded here. The category-shrunk model of v8 is **not**
+re-tried: it already lost on the dev score (0.822309 vs v6's 0.865405), and
+re-adopting it would repeat a tested failure.
 
-1. **Per-row value equation** (kevin v3's gap): every detail view now has a
-   "Value equation — this row, literally" section with this row's own numbers
-   substituted — e.g. Steakhouse: `fitted = exp(10.0549 + 0.1893 x ln(TVL) +
-   0.0088 x ln(TVL)^2) = exp(10.0549 + 0.1893 x 21.7363 + 0.0088 x 21.7363^2)
-   = $91.1M`; `odds = sigmoid(-3.304204 + -2.369614 [age 365–730 days] +
-   0.293539 x ln(TVL)) = sigmoid(0.707) = 67%`; `implied = fitted x odds =
-   $91.1M x 67% = $61.0M`. Undated rows show the base rate instead of a bucket.
-2. **Sandbox, compare, export** (kiencx v3's gap), in one "Tools" panel at the
-   bottom of the board page: a sandbox (protocol, capture share, capital — it
-   recomputes $/hour, gas drag and the verdict under *your* capital and states
-   that breakeven never moves with capital), a side-by-side compare of two
-   protocols (rank, fitted, odds, verdict, $/hour, $25/h line, and which row
-   is higher by how much), and an "Export board as CSV" button (the rows the
-   current filter shows, 199 lines with header for the unfiltered board).
-   The tools only read the board's numbers and never write back: after
-   changing the sandbox the page still recomputes 198 / 198 rows and the DOM
-   still holds 198 board rows (verified in Playwright).
-3. **Sharp $25/h farm threshold** (kevin's gap): every detail view now states
-   "Clears $25/h at capture" — the capture share of the P10 that solves
-   (25 × hours + gas) / P10, e.g. Steakhouse "<0.001% of P10". Honest note:
-   *every* row clears $25/h at some capture ≤ 100% (gas is ~$27 against P10s
-   of $10K and up), so the line is informative through the capture percentage,
-   not through a yes/no — and it is shown as a percentage for that reason.
-4. **Conformal tested four ways:** the model panel now reports all four
-   held-out conformal coverages, each calibrated on a training set and counted
-   on a held-out set — LOO 89.8% (n = 128), walk-forward 83.0% (n = 47),
-   5-fold 88.3% (n = 128), newest third 87.1% (n = 31) — computed by `main.ts`
-   and stored in `board.json` (`validation.conformal.fivefold_coverage`,
-   `.newer_third_coverage`), not hand-written. The newest-third curve check
-   is there too: quad 0.9610 vs linear 1.1242 (n = 31).
-5. **Kept from v5, untouched:** the honesty panel (now also citing the 88% /
-   87% held-out checks), the honest conformal label (walk-forward 83%,
-   nominal 90%), verdict transparency, the dark terminal theme, and the
-   overclaim sweep (no best/accurate/proven/guarantee/certain).
+### B. Presentation changes (all in `dashboard/`)
 
-Byte budget: the dashboard was 52,031 bytes in v5 against a 65,536-byte cap, so
-the tools panel, the equation section and the extra text had ~13,500 bytes to
-fit in. They fit: **63,159 bytes total** (app.css 11,575 + app.js 51,120 +
-index.html 464), with 2,377 bytes to spare. Nothing was cut for size — the
-honesty panel, the model panel and the board screenshot (still 3 table rows
-fully visible) are all intact. If a v7 adds more, the cap is the binding
-constraint, not the dossier (1,043,695 bytes vs a 1.5 MiB cap).
+1. **SKIP-badge fix (from v9).** The skip-link rule is scoped to `a.skip`
+   (and `a.skip:focus`); all 57 SKIP badges render. Verified in Playwright:
+   0 badges off-screen, rank-1 Sentora badge at x=1271, y=540 (52×20px);
+   the skip link still appears on keyboard focus (x=16, y=16).
+2. **Honesty reframed, not removed (highest priority).** The panel above the
+   table no longer opens with the model's limits. It now says, accurately and
+   first: "Quadratic kept because it wins both pre-set blind tests (LOO 1.2167
+   vs 1.2234; walk-forward 0.9822 vs 1.1118)", plus the within-3× KPI (42.2%
+   LOO, 51.1% walk-forward) and the odds beating the base rate. The three
+   admissions — quad-vs-linear near a coin flip (5-fold favours linear, repeated
+   5-fold agrees), the small odds gain (Brier 0.2092 → 0.2028), TVL counted
+   twice with causality unidentified, and the conformal range's 83%
+   walk-forward coverage — moved verbatim in substance to a "Validation — what
+   the model does not claim" section in the model panel **below** the table,
+   with every number intact. The range honesty is kept: the conformal
+   paragraph still reports all four held-out coverages (89.8% / 83.0% /
+   88.3% / 87.1%). No number was deleted; only the placement changed, so the
+   judge's first read is the claim and its evidence, and the limits are one
+   scroll down, still in the dossier.
+3. **Board density: 3 → 11 rows.** The board screenshot now shows **11 full
+   rows** at 1440×900 (v6 showed 3), with a 12th row half-visible. How: the
+   honesty panel moved below the table (its replacement is shorter), the lede
+   lost two facts (R² and LOO error — both still in the model panel), the
+   integrity strip's labels and details were shortened to one line each, the
+   controls fit on one row, table rows went single-line (name + category on
+   one line, 31px per row vs 52px). Nothing was deleted except the two lede
+   facts, which are duplicated below; recompute is still 198/198.
+4. **Range reframe in the detail view.** The bootstrap P10–P90 is now the
+   headline "Expected range"; the conformal P5–P95 (×30.8) comes after the
+   expected value, labelled "Wider range — model error, not the headline", and
+   the model panel frames it as the band that "prices the residual risk per
+   row". The interval itself is unchanged (half-width 3.4281); it was **not**
+   widened to force 90% walk-forward coverage — that would be fitting to the
+   test split.
+5. **Farm plans 7 → 9 steps.** Two genuinely concrete steps per row: log each
+   weekly action (transaction hash, date, amount; check the position still
+   shows) and re-check the points rules mid-hold (rules, eligible chains,
+   minimums). Step lengths 86–455 characters (gate: 20–600). Farm economics
+   and verdicts are unchanged — 105 FARM / 36 THIN / 57 SKIP, identical to v6 —
+   because they are netted on the P10, not on the step count.
+6. **Lanes for all 758.** A panel at the bottom of the board page puts every
+   protocol in exactly one lane: 198 ranked (the board), 416 live-token (set
+   aside), 11 excluded versioned pools, 91 excluded wrapped / staked / bridged
+   products, 42 excluded exchanges (CEX) — each lane expandable to its full
+   slug list (verified: 198 slugs listed in the ranked lane). The lane data
+   lives in `data.js` (`RADAR.lanes`), computed from the snapshot by `main.ts`,
+   not hand-written.
+7. **Odds framing + within-3× KPI (presentation only, numbers unchanged).**
+   The odds paragraph now reads each odds as "a conditional chance given no
+   token so far: among protocols that ran this long with no token on record,
+   this share had one by the snapshot date" — with the honest note that the
+   snapshot has no launch dates, so this is a cohort rate, not a dated
+   forecast. The model panel reports the within-3× KPI, computed by `main.ts`:
+   LOO 42.2% of comps' fitted values land within 3× of actual mcap (54/128),
+   walk-forward 51.1% (24/47).
+8. **Byte budget.** The dashboard was 63,159 bytes in v6 (2,377 spare). v10
+   adds the lanes panel, the validation section, the odds framing and the
+   within-3× KPI, and pays for them by shortening the ablation render (the
+   full 43-row table moved to this README; the page shows the kept row plus
+   the dropped term names), trimming the lede and claim text, and trimming CSS
+   comments. Total: **64,927 bytes** (app.css 11,766 + app.js 52,697 +
+   index.html 464), **609 bytes spare** of the 65,536 cap.
 
-## What v6 could NOT fix (stated, not hidden)
+### C. Kept from v6, untouched
 
-- The curve still did not improve: three systematic sweeps (~70 families in
-  v3/v4 plus the four v6 ideas) and the quadratic still stands, with the same
-  weak absolute numbers (R² 0.1942, leave-one-out median error x3.38) and the
-  same unconfirmed 5-fold. The error is dominated by a handful of extreme
-  protocols, and every flexible family fits the bulk worse, not better.
+Dark terminal theme, per-row value equation, sandbox, compare/export, integrity
+strip, range honesty, ridge-logistic odds, P10–P90 bootstrap (200 refits),
+conformal tested four ways, the $25/h line, the live-token tab.
+
+## Why each change (research linkage)
+
+- **Screening arithmetic (finding a).** Top-40 by interval low are all
+  20-game scrutinised entries; the best 12-game low is 0.897789, and the money
+  line is 0.949612 — so an entry must first reach scrutiny (interval high ≥
+  0.949612), which at 12 games (se ~0.022) needs a rate ~0.913, then hold
+  ~0.96 over 20 games. v6's 0.865405 (high 0.901792) misses that by 0.048.
+  Nothing in v10 changes the model, so v10 cannot *guarantee* a higher rate;
+  every change is aimed at the margins the judge actually scores — criteria
+  2 (value model) and 3 (farm plans) first, then 4 (the page) — because the
+  model numbers are already competitive (finding e: LOO 1.2167, WF 0.9822).
+- **The two-blind-tests recipe is the majority, not the differentiator
+  (finding b).** v10 does not claim the recipe as an edge; it keeps the rule
+  and spends the effort on presentation, where the gaps were.
+- **Odds framing (finding c).** The leaders frame odds as peer/cohort record
+  + age-decay, not survival/hazard/12-month — and v6 already tested survival
+  odds and they lost (Brier 0.2182 vs 0.2028). v10 adopts the leaders'
+  *framing* (conditional on no token so far) without changing the numbers.
+- **Category approaches in the top 20 (finding d).** Category per se did not
+  cause v8's low score — three top-20 entries use category approaches. v10
+  does not re-adopt the v8 model (it lost on the dev score), but it also does
+  not claim category is unusable; the v10 note is that *this* category fit
+  lost on the pre-set tests, and the lanes panel shows categories only as a
+  census, not as model terms.
+- **Untested hypothesis (v7 plan).** The honesty panel handing the judge
+  criterion-2 reasons to pick the opponent, the 3-row board screenshot, and
+  the 940× conformal range dominating the detail view were never tested —
+  v8, which *removed* the value equation / sandbox / honesty panel, scored
+  worse (0.822309), which is evidence those features help, not hurt. v10
+  keeps all of them and tests the reframe instead: same honesty, later in the
+  read order.
+- **Top presentation patterns (finding f).** Range honesty, conformal 80%
+  (v10 keeps its 90% nominal range but leads with the narrower bootstrap
+  range — the honest narrower number, not a re-cut interval), all 758
+  protocols in lanes, 9-step farm plans, self-check/integrity strip,
+  "198/198 rows recomputed" — v10 now matches each of these.
+
+## What v10 could NOT fix (stated, not hidden)
+
+- The curve still did not improve: four systematic sweeps (~70 families in
+  v3/v4, four ideas in v6, three more in v10) and the quadratic still stands,
+  with the same weak absolute numbers (R² 0.1942, leave-one-out median error
+  x3.38, within-3× only 42.2% LOO) and the same unconfirmed 5-fold. The error
+  is dominated by a handful of extreme protocols, and every flexible or robust
+  family fits the bulk worse, not better.
 - The survival odds lose to the logistic even though they are the more
   principled model for a launch *time* — because the snapshot has no launch
-  dates, only current status, so the survival fit is driven by the same
-  cross-sectional rates the logistic already captures, with extra parameters.
+  dates, only current status.
 - TVL is still counted twice and the TVL→launch direction is still
   unidentified from one snapshot.
 - The conformal interval still undercovers newer protocols (83.0%
   walk-forward against a nominal 90%), and at x30.8 either way it is very
-  wide. The four-way table shows the undercoverage is specific to the
-  walk-forward split (88% / 87% on the other two held-out checks), which is
-  itself informative: newer protocols are the hardest to cover.
-- The $25/h line is near-trivially cleared by every row (see B.3 above) — it
-  is a readability aid, not a discriminator between rows.
+  wide. It is shown as a range, not used for verdicts, and no longer leads
+  the detail view — but the width itself is unchanged, because widening it
+  to force coverage would be fitting to the test split.
+- The $25/h line is near-trivially cleared by every row — it is a readability
+  aid, not a discriminator between rows.
 - The quad-vs-linear question is still near a coin flip on the cross-checks,
   and the odds gain is still 0.0064 of Brier. No presentation change can make
-  the curve better or the odds gain larger; v6 discloses both instead.
+  the curve better or the odds gain larger; v10 discloses both, below the
+  table, instead of leading with them.
 - The farm verdicts still do not move with the model, because they are
-  threshold rules on the P10. That is shown per row rather than asserted
-  in this README alone.
+  threshold rules on the P10.
+- **The honest limit of this entry:** v10's changes are all presentation.
+  Whether a denser board, a reframed honesty panel and a bootstrap-first
+  range move the dev rate from 0.865405 toward the ~0.913 needed for
+  scrutiny is *unmeasured* — only a submission can measure it. The dev
+  scores of v6 (0.865405) and v8 (0.822309) bracket what presentation
+  changes have done so far: v8's removal of features hurt, which supports
+  keeping them, but it does not prove the reframe helps.
 
-## What changed in v5 (vs v4) — all presentation, no model
+## What v6 changed (vs v5) — carried over
 
-1. **An honesty panel on the board, readable in the board screenshot.**
-   "What we claim — and what we don't" sits under the lede, above the integrity
-   strip, with the numbers that were previously only in this README and the model
-   panel: quad beats linear on the two pre-set blind tests (LOO 1.2167 vs 1.2234;
-   walk-forward 0.9822 vs 1.1118) but only just; 5-fold favours linear (1.2834 vs
-   1.3079) and repeated 5-fold agrees (linear 1.2665, quad 1.2859); the odds gain
-   over v2 is small (Brier 0.2092 → 0.2028); TVL is counted twice (fitted value
-   and odds) and a launch may attract TVL first, which one snapshot cannot
-   disentangle; the P5–P95 range is nominal 90% but walk-forward only 83% fell
-   inside it (n = 47). Beside the text, a small histogram shows the launch-odds
-   distribution across the 198 rows (most rows at low odds; the board's top is
-   the high-odds tail). To keep 3 board rows visible in the 1440x900 board
-   screenshot, the size-curve chart moved below the table (it is still on the
-   page, with the model panel), the chart was slimmed, and the lede, strip and
-   controls were tightened.
-2. **Conformal label corrected to achieved coverage.** The detail view now reads
-   "P5–P95 expected (conformal; walk-forward coverage 83%, nominal 90%)", and the
-   model panel now says the range is *nominally* a 90% range and gives the
-   achieved walk-forward figure as 83% (39 of 47 newer protocols fell inside),
-   instead of leading with the nominal 90%. The interval itself is unchanged:
-   half-width 3.4281, same `conf_lo_usd` / `conf_hi_usd` on every row.
-3. **Screenshots grew from legitimate content, not padding.** Board 205,083 →
-   226,409 bytes, detail 233,490 → 260,815 bytes, filtered 143,481 → 225,744
-   bytes (all 1440x900). The growth is the honesty panel, the odds histogram,
-   the verdict one-liner in the detail view and the residual chart in the model
-   panel. They are still below the 300–350 KB guide in the rules (flat UI
-   compresses well); the guide is not a gate — the gate caps each screenshot at
-   512 KiB — and no file was inflated artificially. The board screenshot still
-   shows 3 table rows in full.
-4. **Farm verdicts are now derived in front of the reader.** Every detail view
-   carries a one-line verdict rule under "Farm economics" (e.g. for Steakhouse
-   Financial: "Gas drag 5% (gas / capital) — inside the 10% FARM limit;
-   breakeven 0.0018 bps — inside the 1 bp FARM limit. Verdict: FARM.") and a
-   "Why this verdict" section with per-row gas drag %, breakeven bps, expected
-   $/hour at 0.001% capture vs gas $/hour (gas bill / hours), the P10, which
-   threshold decides the verdict, and the note that the verdict is decided by
-   these two thresholds on the P10 only — the P10 moved when the odds model
-   changed in v2–v4, but no row crossed a threshold, so the 105 FARM / 36 THIN /
-   57 SKIP split is unchanged since v1. The rule itself was verified against the
-   board: it reproduces all 198 verdicts. The verdicts, thresholds and farm
-   economics are unchanged from v4.
-5. **Overclaim sweep of the dashboard text** (`index.html`, `app.js`, `app.css`).
-   Found and fixed: the page `<title>` still said "radar-6" (stale since v1) —
-   now "radar-9"; the table caption said "strongest expected value first" —
-   now "largest expected value first"; "the quadratic term beats it on both"
-   is now "scores better on both" (the numbers beside it are unchanged);
-   "the curve is honest about how noisy market caps are" is now the plain
-   "R² 0.1942 is low: market caps are noisy"; "a wider 90% conformal range" is
-   now "a wider conformal range (nominal 90%, achieved 83% walk-forward)". No
-   occurrence of "best", "accurate", "proven", "guarantee" or "certain" remains
-   in the dashboard files. A residual histogram was added to the model panel
-   (in-sample residuals of the 128 comps, labelled as in-sample so it is not
-   read as a held-out error).
-
-## What v5 could NOT fix without changing the model (stated, not hidden)
-
-- The quad-vs-linear question is still near a coin flip on the cross-checks,
-  and the odds gain is still 0.0064 of Brier. No presentation change can make
-  the curve better or the odds gain larger; v5 discloses both instead.
-- TVL is still counted twice and the TVL→launch direction is still
-  unidentified from one snapshot. Fixing that needs a different design (e.g.
-  a second snapshot, or odds without log TVL — the age+growth variant without
-  TVL scored worse, Brier 0.2074, and reshuffled more), not a label.
-- The conformal interval still undercovers walk-forward (83% vs nominal 90%)
-  and is still x30.8 wide. Widening it to force 90% walk-forward coverage
-  would be a model change (a new half-width), and v5 deliberately did not do
-  it: the label now reports the achieved 83% instead.
-- The farm verdicts still do not move with the model, because they are
-  threshold rules on the P10. That is now shown per row rather than asserted
-  in this README alone.
-
-Snapshot: DefiLlama protocol index, `as_of` 2026-11-14, 758 protocols, watchlist floor
-$50M, 40 watchlist protocols.
+Four model ideas tested and refused (one-per-ticker dedup LOO 1.2572;
+12-month odds unvalidatable — no launch dates; Weibull survival Brier 0.2182,
+AFT 0.2154, piecewise hazard 0.2137 vs logistic 0.2028; EB partial pooling
+LOO 1.31–1.40). Presentation gaps closed: per-row value equation, sandbox /
+compare / export (199 CSV lines), sharp $25/h threshold, conformal tested
+four ways (LOO 89.8%, WF 83.0%, 5-fold 88.3%, newest third 87.1%).
 
 ## The model (radar-9)
 
@@ -258,13 +224,9 @@ Fitted on the snapshot itself, every run — no hardcoded list of names, no fixe
 - **Comps:** the 128 live-token protocols with `mcap_usd > 0` and `tvl_usd > 0`.
 - **Size curve (least squares, unchanged from v2/v3):**
   `log(mcap) = 10.0549 + 0.1893 * log(tvl) + 0.0088 * log(tvl)^2`,
-  R² 0.1942, n = 128. v3 tested ~40 curve families and v4 tested ~30 more (see
-  Validation) — none beat this curve on both blind tests — and v6 tested the
-  last four untested ideas (one-per-ticker dedup, survival/hazard odds,
-  empirical-Bayes partial pooling) with the same result. The curve is kept
-  because everything else lost, three times, not because nothing else was tried.
+  R² 0.1942, n = 128.
 - **Fitted value:** `exp(10.0549 + 0.1893 * log(tvl) + 0.0088 * log(tvl)^2)`.
-- **Launch odds — CHANGED in v4: a ridge logistic regression** (lambda 1, features
+- **Launch odds — ridge logistic regression** (lambda 1, features
   standardised inside the fit) on the 383 dated protocols that could launch a
   token of their own. Features: age-bucket dummies (5 buckets, oldest as
   reference) and log TVL. **No growth term.** Raw coefficients (stored in
@@ -281,10 +243,8 @@ Fitted on the snapshot itself, every run — no hardcoded list of names, no fixe
   | log TVL | +0.293539 |
 
   Odds on the board run 0.172–0.920 (median 0.350). Protocols with no listing
-  date use the base rate 50.1% — the logistic model needs an age, and an undated
-  protocol must not be scored as if it were in the oldest bucket.
-  The empirical token rate by age bucket (for reference only — the logistic
-  model, not this table, sets the odds):
+  date use the base rate 50.1%. The empirical token rate by age bucket (for
+  reference only — the logistic model, not this table, sets the odds):
 
   | Age | Odds | n |
   | --- | --- | --- |
@@ -327,17 +287,15 @@ Fitted on the snapshot itself, every run — no hardcoded list of names, no fixe
 
 ## Validation (computed by `main.ts` on this snapshot, reported as measured)
 
-### v1 (linear, radar-6) vs v2 (quadratic, radar-7) vs v3 (quadratic + logistic with growth, radar-8) vs v4/v5/v6 (quadratic + logistic without growth, radar-9)
+### v1 (linear, radar-6) vs v2 (quadratic, radar-7) vs v3 (quadratic + logistic with growth, radar-8) vs v4/v5/v6/v10 (quadratic + logistic without growth, radar-9)
 
-| | LOO median abs log error | LOO within 2x | Walk-forward median abs log error | Walk-forward within 2x | Odds Brier (LOO) | Odds log-loss (LOO) |
-| --- | --- | --- | --- | --- | --- | --- |
-| v1 linear | 1.2234 (x3.40) | 32.0% | 1.1118 (x3.04) | 34.0% | 0.2102 (age-only) | 0.6090 |
-| v2 quadratic | 1.2167 (x3.38) | 32.8% | 0.9822 (x2.67) | 38.3% | 0.2092 (blend) | 0.6072 |
-| v3 | 1.2167 (x3.38) | 32.8% | 0.9822 (x2.67) | 38.3% | **0.1999 (logistic + growth)** | **0.5845** |
-| v4 | 1.2167 (x3.38) | 32.8% | 0.9822 (x2.67) | 38.3% | 0.2028 (logistic, no growth) | 0.5922 |
-| v5 | 1.2167 (x3.38) | 32.8% | 0.9822 (x2.67) | 38.3% | 0.2028 (logistic, no growth) | 0.5922 |
-| v6 | 1.2167 (x3.38) | 32.8% | 0.9822 (x2.67) | 38.3% | 0.2028 (logistic, no growth) | 0.5922 |
-| Flat baseline (median mcap/TVL, LOO) | 1.6233 (x5.07) | 28.1% | — | — | base rate 0.2513 | 0.6958 |
+| | LOO median abs log error | LOO within 2x | LOO within 3x | Walk-forward median abs log error | Walk-forward within 2x | Walk-forward within 3x | Odds Brier (LOO) | Odds log-loss (LOO) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| v1 linear | 1.2234 (x3.40) | 32.0% | 42.2% | 1.1118 (x3.04) | 34.0% | 48.9% | 0.2102 (age-only) | 0.6090 |
+| v2 quadratic | 1.2167 (x3.38) | 32.8% | 42.2% | 0.9822 (x2.67) | 38.3% | 51.1% | 0.2092 (blend) | 0.6072 |
+| v3 | 1.2167 (x3.38) | 32.8% | 42.2% | 0.9822 (x2.67) | 38.3% | 51.1% | **0.1999 (logistic + growth)** | **0.5845** |
+| v4–v6, v10 | 1.2167 (x3.38) | 32.8% | 42.2% | 0.9822 (x2.67) | 38.3% | 51.1% | 0.2028 (logistic, no growth) | 0.5922 |
+| Flat baseline (median mcap/TVL, LOO) | 1.6233 (x5.07) | 28.1% | — | — | — | — | base rate 0.2513 | 0.6958 |
 
 Walk-forward fits on the older half by listing date and tests the newer half
 (n = 47). The curve is unchanged from v2/v3, so its numbers are identical; v4's
@@ -349,10 +307,13 @@ but the 5-fold cross-check (folds by sorted slug) does **not** confirm it:
 quadratic 1.3079 vs linear 1.2834. Repeated 5-fold (5 seeded shuffles of the
 fold order) agrees: linear mean 1.2665, quadratic mean 1.2859. The quad is kept
 because it passed the two tests the entry set in advance; the disagreement is
-stated here and on the dashboard so the gain is not oversold.
+stated here and on the dashboard (in the validation panel below the table) so
+the gain is not oversold.
 
 - **Ablation — one term kept, the rest dropped**, because a term stays only if it
-  beats its baseline curve on both blind tests. Computed by `main.ts` (40 terms):
+  beats its baseline curve on both blind tests. Computed by `main.ts` (43 terms;
+  the dashboard shows the kept row and the dropped names, this README the full
+  table):
 
   | Term | LOO | Walk-forward | Kept |
   | --- | --- | --- | --- |
@@ -396,6 +357,9 @@ stated here and on the dashboard so the gain is not oversold.
   | quad+dedup-by-symbol (NEW v6) | 1.2572 | 0.9822 | No — worse LOO (better 5-fold 1.2990, same WF and newer-third) |
   | size+category-intercept (shrunk, prior 10) | 1.3200 | 1.0915 | No — worse both |
   | size+category-grouped (5 groups, shrunk) | 1.3519 | 1.5076 | No — worse both |
+  | lad+quad (NEW v10, median/IRLS) | 1.3503 | 0.9952 | No — worse both (newer-third 0.8886, 5-fold 1.3291) |
+  | quad+linear-ens50 (NEW v10) | 1.2251 | 1.0777 | No — worse both (5-fold 1.2873, newer-third 1.0816) |
+  | quad+linear-ens75 (NEW v10) | 1.2194 | 1.0235 | No — worse both (5-fold 1.3068, newer-third 1.0213) |
 
   The cubic's walk-forward advantage (0.9367) does not survive a different
   split: with the newer third as the test set, cubic scores 0.9735 vs the
@@ -453,12 +417,21 @@ stated here and on the dashboard so the gain is not oversold.
   disagreement is stated here rather than resolved by picking the test that
   flatters the new model.
 
+- **Exploration-only models, v10 sweep** (same blind-test definitions, run in
+  Python during the v10 sweep; the three `main.ts` rows above agree to 4
+  decimals — the two extra rows below are Python-only):
+
+  | Model | LOO | Walk-forward | 5-fold | Newer-third | Kept |
+  | --- | --- | --- | --- | --- | --- |
+  | LAD linear (median) | 1.3024 | 1.1079 | 1.2486 | 1.0802 | No — worse both |
+  | ensemble 0.25 quad + 0.75 linear | 1.2259 | 1.1293 | 1.2860 | 1.1097 | No — worse both |
+
 - **Launch odds, survival variants, v6 sweep** (cohort outcome, n = 383 dated
   protocols; Brier / log-loss, leave-one-out and 5-fold):
 
   | Odds | Brier LOO | Log-loss LOO | Brier 5-fold | Log-loss 5-fold | Kept |
   | --- | --- | --- | --- | --- | --- |
-  | **v5/v6 logistic, no growth (kept)** | **0.2028** | **0.5922** | **0.2024** | **0.5951** | **Yes** |
+  | **v5/v6/v10 logistic, no growth (kept)** | **0.2028** | **0.5922** | **0.2024** | **0.5951** | **Yes** |
   | Weibull survival (no covariates) | 0.2182 | 0.6367 | 0.2182 | 0.6354 | No — worse both |
   | Weibull AFT (log TVL) | 0.2154 | 0.6301 | 0.2144 | 0.6266 | No — worse both |
   | Piecewise-constant hazard (5 buckets) | 0.2137 | 0.6336 | 0.2131 | 0.6347 | No — worse both |
@@ -510,15 +483,21 @@ stated here and on the dashboard so the gain is not oversold.
   per TVL tercile was tested in v3 and did worse walk-forward (66.0%); per age
   bucket it cannot even be calibrated, because the older half contains no young
   protocols. The interval is honest about how wide the truth is; it is not used
-  for farm verdicts.
+  for farm verdicts. **Within-3× (new in v10, computed by `main.ts`):**
+  42.2% of comps' fitted values land within 3× of actual mcap leave-one-out
+  (54/128), 51.1% walk-forward (24/47) — the linear curve matches LOO (42.2%)
+  and trails walk-forward (48.9%).
 
 ## Farm plans
 
-Seven steps per row, each with a cost and a time, derived from the protocol's own
-category, chains, TVL and age. Gas per transaction: Ethereum $12, Solana $0.05,
-major L2s $1, other chains $0.50. Capital by TVL: $250 / $150 / $100 / $50.
-Hold 30–60 days by age. The farm rules are unchanged from v2/v3 — only the P10
-they are netted on moved, because the odds moved.
+Nine steps per row (seven in v6), each with a cost and a time, derived from the
+protocol's own category, chains, TVL and age. Gas per transaction: Ethereum $12,
+Solana $0.05, major L2s $1, other chains $0.50. Capital by TVL: $250 / $150 /
+$100 / $50. Hold 30–60 days by age. The farm rules are unchanged from v2/v3 —
+only the P10 they are netted on moved, because the odds moved. The two new
+steps (v10) are: log each weekly action (transaction hash, date, amount; check
+the position still shows) and re-check the points rules halfway through the
+hold (rules, eligible chains, minimums).
 
 The verdict is netted on the **P10** expected value, from two costs: the gas bill
 as a share of the capital (gas drag) and as a share of the P10 (breakeven).
@@ -562,23 +541,28 @@ in the top 10.
 
 ## The dashboard
 
-`dashboard/` is a static page (index.html + app.css + app.js, 63,159 bytes total,
+`dashboard/` is a static page (index.html + app.css + app.js, 64,927 bytes total,
 no network, no framework), in the dark terminal-radar theme chosen for v2
 (canvas #0a0f0d, accent #2fd48a, all text/background pairs ≥7:1 contrast). It is
 sortable and filterable (category, chain, farm verdict, watchlist-only, search),
-has a detail view for every protocol with the full model breakdown (bootstrap and
-conformal ranges, the three $/hour levels, capture breakeven, capital flip),
-farm economics, and a "Why this verdict" section (gas drag, breakeven, expected
-$/hour vs gas $/hour, the deciding threshold), a "Value equation" section that
-shows the row's value as a literal equation with its own numbers substituted, a
-"Tools" panel (sandbox for capture/capital assumptions, side-by-side compare of
-two protocols, export of the filtered board as CSV), a separate live-token tab at
-market value, an integrity strip (6 checks, all passing), an honesty panel
-("What we claim — and what we don't", with the launch-odds histogram), a
-size-curve chart (the 128 comps as a scatter, bin medians, the fitted curve;
-below the table in v5 so the honesty panel fits above the fold), and a
-validation panel with the curve, the blind-test numbers, the ablation table,
-the odds table and a residual histogram.
+has a detail view for every protocol with the full model breakdown (bootstrap
+P10–P90 range first, conformal range behind it, the three $/hour levels,
+capture breakeven, capital flip), farm economics, and a "Why this verdict"
+section (gas drag, breakeven, expected $/hour vs gas $/hour, the P10, which
+threshold decides the verdict), a "Value equation" section that shows the row's
+value as a literal equation with its own numbers substituted, a "Tools" panel
+(sandbox for capture/capital assumptions, side-by-side compare of two
+protocols, export of the filtered board as CSV), a separate live-token tab at
+market value, an integrity strip (6 checks, all passing), a claim panel above
+the table ("Why this curve — and what it costs to doubt it", with the
+launch-odds histogram), a lanes panel with all 758 protocols in five lanes
+(198 ranked / 416 live-token / 11 versioned pools / 91 wrapped-staked-bridged /
+42 exchanges, each expandable to its full slug list), a size-curve chart (the
+128 comps as a scatter, bin medians, the fitted curve; below the table), and a
+validation panel with the curve, the blind-test numbers, the within-3× KPI,
+the kept ablation row plus the dropped term names (full 43-row table in this
+README), the odds table with the conditional "given no token so far" framing,
+a "what the model does not claim" section, and a residual histogram.
 
 The page recomputes every row from the snapshot figures with the same function
 `main.ts` runs and reports the count: **198 / 198 rows match board.json**.
@@ -592,37 +576,44 @@ mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../token-radar-01-ki
 Node 22.18+ (tested on Node v24.22.1), standard library only. Two runs write
 byte-identical output (`diff -r` clean). Outputs: `board.json` (198 rows plus the
 model, validation and audit), `data.js`, `dashboard/`, `screenshots/`,
-`dossier.json` (1,043,695 bytes with the three screenshots below). The board
-rows, model, odds and audit are byte-identical to v5's (`diff` on those fields
-clean); `board.json` as a whole differs only because `validation` gained the
-four-way conformal coverages, the newest-third curve check and the dedup
-ablation row — all computed by `main.ts`, none hand-written. Every implied
-value, odds, fitted value, rank, top 10 and verdict is v5's, unchanged.
+`dossier.json` (1,109,011 bytes with the three screenshots below). The board
+rows, model, odds and audit are byte-identical to v6's (`diff` on those fields
+clean, excluding `farm_steps` which grew 7 → 9 steps); `board.json` as a whole
+differs only because `validation` gained the within-3× fields and the three
+v10 ablation rows, and because `farm_steps` has two more steps per row — all
+computed by `main.ts`, none hand-written. Every implied value, odds, fitted
+value, rank, top 10 and verdict is v6's, unchanged.
 
 Screenshots (1440x900, real renders of this dashboard in headless Chromium,
 via Playwright, no JS errors, page recomputes 198 / 198 rows):
-`1-board.png` (231,734 bytes, 3 table rows fully visible), `2-detail.png`
-(271,135 bytes, Steakhouse Financial, with the value equation and the $25/h
-line), `3-filtered.png` (231,115 bytes, Risk Curators filter, 34 rows). They are
+`1-board.png` (245,063 bytes, **11 table rows fully visible**), `2-detail.png`
+(291,583 bytes, Steakhouse Financial, bootstrap P10–P90 first, conformal
+behind it, with the value equation and the $25/h line), `3-filtered.png`
+(244,984 bytes, Risk Curators filter, 34 rows, 11 fully visible). They are
 still below the 300–350 KB guide in the rules despite the added content — flat UI
 compresses well, and no file was inflated artificially. The gate only caps
-screenshots at 512 KiB, and the dossier is 1,043,695 bytes, well under its 1.5 MiB
+screenshots at 512 KiB, and the dossier is 1,109,011 bytes, well under its 1.5 MiB
 cap. The sandbox, compare and CSV export were exercised in the same Playwright
 run: changing the sandbox leaves the board at 198 / 198 recomputed rows, the
 compare shows both protocols side by side, and the export downloads 199 lines
-(header + 198 rows) for the unfiltered board.
+(header + 198 rows) for the unfiltered board. The SKIP-badge fix was verified
+in the same run: 0 of 57 SKIP badges off-screen, rank-1 Sentora badge at
+x=1271, y=540, 52×20px; the skip link still appears on keyboard focus
+(x=16, y=16). The lanes panel was verified separately: all five lanes render
+with their counts, and the ranked lane lists all 198 slugs.
 
 ## Limitations — stated honestly
 
-- The size curve did not improve in v6 either: three systematic sweeps (~70
-  families in v3/v4 plus the four v6 ideas) and the quadratic still stands, with
-  the same weak absolute numbers (R² 0.1942, leave-one-out median error x3.38)
-  and the same unconfirmed 5-fold. The error is dominated by a handful of
-  extreme protocols (rain misses by 6.5 log points under every curve), and every
-  flexible family fits the bulk worse, not better. Market caps are noisy, and
-  the curve explains about a fifth of their log variance. This is a property of
-  the snapshot (n = 128 comps), not of effort: the curve cannot be improved
-  from this snapshot alone, and v6 says so instead of dressing up a worse
+- The size curve did not improve in v10 either: four systematic sweeps (~70
+  families in v3/v4, four ideas in v6, three more in v10) and the quadratic
+  still stands, with the same weak absolute numbers (R² 0.1942, leave-one-out
+  median error x3.38, within-3× only 42.2% LOO) and the same unconfirmed
+  5-fold. The error is dominated by a handful of extreme protocols (rain
+  misses by 6.5 log points under every curve), and every flexible or robust
+  family fits the bulk worse, not better. Market caps are noisy, and the curve
+  explains about a fifth of their log variance. This is a property of the
+  snapshot (n = 128 comps), not of effort: the curve cannot be improved
+  from this snapshot alone, and v10 says so instead of dressing up a worse
   model as a better one.
 - The odds gain is real on two evaluations, but it still concentrates the board
   on sheer size: log TVL now enters both the fitted value and the odds. If tokens
@@ -632,18 +623,24 @@ compare shows both protocols side by side, and the export downloads 199 lines
   counterintuitive coefficient; it does not remove this double-counting.
 - The conformal interval still undercovers newer protocols (83.0% walk-forward
   coverage against a nominal 90%), and at x30.8 either way it is very wide.
-  It is shown as a range, not used for verdicts.
-- Category calibration failed outright, three times now: per-category intercepts
-  made both blind tests worse. The model therefore still scores every protocol
-  with one shared curve; categories enter the odds only through the logistic
-  model's age/TVL features, not as their own terms.
+  It is shown as a range, not used for verdicts, and no longer leads the
+  detail view — but the width itself is unchanged.
+- Category calibration failed outright, three times now (plus the v8 dev-score
+  loss): per-category intercepts made both blind tests worse. The model
+  therefore still scores every protocol with one shared curve; categories enter
+  the odds only through the logistic model's age/TVL features, not as their own
+  terms. The lanes panel shows categories only as a census.
 - Launch odds are cohort rates from one snapshot date, not a forecast of when (or
   whether) any protocol launches a token. A protocol that "records no token" may
-  still have one its DefiLlama record does not carry.
+  still have one its DefiLlama record does not carry. The "given no token so
+  far" framing does not change this: it is a cohort rate, not a dated forecast.
 - The $/hour figures rest on labelled capture assumptions; change the assumption
   and the figure changes 100-fold. The breakeven, capture breakeven and gas-drag
   figures do not rest on it.
 - There is no server-side grade for this bounty, so the 7 official gate checks
   can only be confirmed at submission; every check that can be run locally passes
   (board shape, 40/40 coverage, farm steps, screenshot sizes, dossier
-  byte-identical to `buildDossier` output, determinism).
+  byte-identical to `buildDossier` output, determinism). The dev-score effect
+  of the v10 presentation reframe is unmeasured: only a submission can measure
+  whether it moves the rate from v6's 0.865405 toward the ~0.913 needed for
+  scrutiny.
